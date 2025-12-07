@@ -1,17 +1,22 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-import { LatLng } from '../types';
+import { LatLng, Guess } from '../types';
 import { searchAddress, getAddressFromCoords } from '../services/geocodingService';
 
 interface GameMapProps {
-  initialCenter?: LatLng | null; // Allow null for safety
+  initialCenter?: LatLng | null; 
   onLocationSelect?: (latlng: LatLng, name?: string) => void;
-  selectedLocation?: LatLng | null;
+  selectedLocation?: LatLng | null; // The current user's temporary selection in PLAY mode
+  
+  // Review Mode Props
   actualLocation?: LatLng | null;
+  guesses?: Guess[]; // List of all guesses to display in REVIEW mode
+  currentUserId?: string; // To highlight the current user
+  
   interactive?: boolean;
   isOpen?: boolean;
-  enableSearch?: boolean; // New prop to enable search bar
+  enableSearch?: boolean;
 }
 
 const GameMap: React.FC<GameMapProps> = ({ 
@@ -19,34 +24,36 @@ const GameMap: React.FC<GameMapProps> = ({
   onLocationSelect, 
   selectedLocation,
   actualLocation,
+  guesses = [],
+  currentUserId,
   interactive = true,
   isOpen = false,
   enableSearch = false
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const markerRef = useRef<L.Marker | null>(null);
-  const actualMarkerRef = useRef<L.Marker | null>(null);
-  const lineRef = useRef<L.Polyline | null>(null);
+  
+  // References for cleanup
+  const markersRef = useRef<L.Marker[]>([]);
+  const linesRef = useRef<L.Polyline[]>([]);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
 
-  // Default to a zoomed out view (e.g., Center of China) if no initialCenter provided
-  // to avoid spoiling the location in Play mode.
+  // Default center (China)
   const defaultCenter = { lat: 35.8617, lng: 104.1954 }; 
   const safeCenter = initialCenter || defaultCenter;
-  const initialZoom = initialCenter ? 13 : 3;
 
+  // Initialize Map
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
     mapRef.current = L.map(mapContainerRef.current, {
-      zoomControl: false, // Disable default zoom control to use custom ones
+      zoomControl: false,
       attributionControl: false,
       preferCanvas: true,
-      zoomSnap: 0.5 // Smoother zooming
-    }).setView([safeCenter.lat, safeCenter.lng], initialZoom);
+      zoomSnap: 0.5
+    }).setView([safeCenter.lat, safeCenter.lng], initialCenter ? 13 : 3);
 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
@@ -54,21 +61,11 @@ const GameMap: React.FC<GameMapProps> = ({
       attribution: '&copy; OpenStreetMap &copy; CARTO'
     }).addTo(mapRef.current);
 
-    const defaultIcon = L.icon({
-      iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
-      shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
-      iconSize: [25, 41],
-      iconAnchor: [12, 41],
-    });
-    L.Marker.prototype.options.icon = defaultIcon;
-
     mapRef.current.on('click', async (e) => {
       if (!interactive || !onLocationSelect) return;
       
-      // Optimistic update
       onLocationSelect({ lat: e.latlng.lat, lng: e.latlng.lng });
       
-      // Async fetch name if creating
       if (enableSearch) {
           const name = await getAddressFromCoords(e.latlng.lat, e.latlng.lng);
           onLocationSelect({ lat: e.latlng.lat, lng: e.latlng.lng }, name);
@@ -77,117 +74,159 @@ const GameMap: React.FC<GameMapProps> = ({
 
   }, []);
 
-  // Resize handler
+  // Handle Resize
   useEffect(() => {
     if (isOpen && mapRef.current) {
-      setTimeout(() => {
-        mapRef.current?.invalidateSize();
-      }, 300);
+      setTimeout(() => mapRef.current?.invalidateSize(), 300);
       mapRef.current.invalidateSize();
     }
   }, [isOpen]);
 
-  // View update on center change - ONLY if specifically passed (e.g. from search or result)
+  // Handle Initial Center Update (rarely needed but good for re-centering)
   useEffect(() => {
-    if (mapRef.current && initialCenter) {
-      // Only fly to specific initial center if it's different significantly or we are not in initial load
-      // For play mode, we generally don't want to auto-pan unless it's a result
-      mapRef.current.setView([initialCenter.lat, initialCenter.lng], 13);
-    }
+      if (mapRef.current && initialCenter) {
+          mapRef.current.setView([initialCenter.lat, initialCenter.lng], 13);
+      }
   }, [initialCenter?.lat, initialCenter?.lng]);
 
-  // Marker update
+
+  // --- Render Markers & Logic ---
   useEffect(() => {
     if (!mapRef.current) return;
+    const map = mapRef.current;
 
-    if (selectedLocation) {
-      if (markerRef.current) {
-        markerRef.current.setLatLng([selectedLocation.lat, selectedLocation.lng]);
-      } else {
-        markerRef.current = L.marker([selectedLocation.lat, selectedLocation.lng]).addTo(mapRef.current);
-      }
-      // Do NOT auto pan to selection in Play mode to allow free exploration, 
-      // unless it's the very first selection or user interaction logic changes.
-      // But for Create mode, we usually want to see where we clicked.
-      if (interactive && isOpen && enableSearch) {
-          mapRef.current.panTo([selectedLocation.lat, selectedLocation.lng]);
-      }
-    } else {
-      if (markerRef.current) {
-        markerRef.current.remove();
-        markerRef.current = null;
-      }
-    }
-  }, [selectedLocation, interactive, isOpen, enableSearch]);
+    // Clear existing layers
+    markersRef.current.forEach(m => m.remove());
+    linesRef.current.forEach(l => l.remove());
+    markersRef.current = [];
+    linesRef.current = [];
 
-  // Result mode logic
-  useEffect(() => {
-    if (!mapRef.current || !actualLocation) return;
+    // Helper to add marker
+    const addMarker = (lat: number, lng: number, icon: L.Icon | L.DivIcon) => {
+        const m = L.marker([lat, lng], { icon }).addTo(map);
+        markersRef.current.push(m);
+        return m;
+    };
 
-    const greenIcon = L.icon({
-      iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
-      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-      iconSize: [25, 41],
-      iconAnchor: [12, 41],
-      popupAnchor: [1, -34],
-      shadowSize: [41, 41]
-    });
-
-    if (!actualMarkerRef.current) {
-      actualMarkerRef.current = L.marker(
-        [actualLocation.lat, actualLocation.lng], 
-        { icon: greenIcon }
-      ).addTo(mapRef.current);
+    // 1. Render Actual Location (Target) - Only if provided (Review Mode)
+    if (actualLocation) {
+        const flagIcon = L.divIcon({
+            className: 'bg-transparent',
+            html: `<div class="relative">
+                     <div class="absolute -bottom-1 left-1 w-4 h-1 bg-black/30 rounded-full blur-[2px]"></div>
+                     <div class="text-3xl filter drop-shadow-md">🚩</div>
+                   </div>`,
+            iconSize: [30, 30],
+            iconAnchor: [6, 30]
+        });
+        addMarker(actualLocation.lat, actualLocation.lng, flagIcon);
     }
 
-    if (selectedLocation) {
-      if (lineRef.current) lineRef.current.remove();
-      lineRef.current = L.polyline([
-        [selectedLocation.lat, selectedLocation.lng],
-        [actualLocation.lat, actualLocation.lng]
-      ], { color: '#f97316', weight: 3, dashArray: '5, 10' }).addTo(mapRef.current);
-      
-      mapRef.current.fitBounds(lineRef.current.getBounds(), { padding: [50, 50] });
-    } else {
-        mapRef.current.setView([actualLocation.lat, actualLocation.lng], 5);
+    // 2. Render User Selection (Play Mode - Temporary Pin)
+    if (selectedLocation && interactive) {
+        const tempIcon = L.divIcon({
+            className: 'bg-transparent',
+            html: `<div class="w-6 h-6 rounded-full bg-blue-500 border-2 border-white shadow-lg animate-bounce"></div>`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+        });
+        const m = addMarker(selectedLocation.lat, selectedLocation.lng, tempIcon);
+        
+        // Only pan in search mode (Creation), not play mode
+        if (enableSearch) {
+            map.panTo([selectedLocation.lat, selectedLocation.lng]);
+        }
     }
-  }, [actualLocation, selectedLocation]);
+
+    // 3. Render Guesses (Review Mode - Multiple Avatars)
+    if (guesses.length > 0 && actualLocation) {
+        // Sort guesses: Current user last (so it's on top z-index), others first
+        const sortedGuesses = [...guesses].sort((a, b) => {
+            if (a.userId === currentUserId) return 1;
+            if (b.userId === currentUserId) return -1;
+            return 0;
+        });
+
+        // Limit to 15 as requested
+        const displayGuesses = sortedGuesses.slice(0, 15);
+
+        displayGuesses.forEach(g => {
+            const isMe = g.userId === currentUserId;
+            
+            // Generate Avatar Icon
+            // Using DiceBear for consistent avatars based on seed
+            const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${g.userAvatarSeed || g.userId}&backgroundColor=b6e3f4`;
+            
+            const html = `
+                <div class="relative group">
+                    <!-- Avatar Circle -->
+                    <div class="w-8 h-8 rounded-full border-2 ${isMe ? 'border-orange-500 z-50 scale-110' : 'border-white z-10'} bg-gray-800 overflow-hidden shadow-lg box-border transition-transform hover:scale-125">
+                        <img src="${avatarUrl}" class="w-full h-full object-cover" />
+                    </div>
+                    <!-- Name Bubble (Always show for others, or on hover) -->
+                    <div class="${isMe ? 'hidden group-hover:block' : 'block'} absolute -top-8 left-1/2 -translate-x-1/2 bg-white/90 text-gray-900 text-[10px] px-2 py-0.5 rounded shadow-sm whitespace-nowrap font-bold border border-gray-200 z-[60]">
+                        ${g.userName} ${(g.distance/1000).toFixed(1)}km
+                    </div>
+                </div>
+            `;
+
+            const icon = L.divIcon({
+                className: 'bg-transparent',
+                html: html,
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
+            });
+
+            addMarker(g.location.lat, g.location.lng, icon);
+
+            // Draw line ONLY for current user (as per typical design to reduce clutter, or screenshot style)
+            // Or if user requested "similar to pic", pic shows lines. Let's draw dashed lines for everyone but subtle, and strong for me.
+            const line = L.polyline([
+                [g.location.lat, g.location.lng],
+                [actualLocation.lat, actualLocation.lng]
+            ], { 
+                color: isMe ? '#f97316' : '#9ca3af', // Orange for me, Gray for others
+                weight: isMe ? 3 : 1, 
+                opacity: isMe ? 1 : 0.5,
+                dashArray: '4, 6' 
+            }).addTo(map);
+            linesRef.current.push(line);
+        });
+        
+        // Fit bounds to include all guesses and actual location
+        if (displayGuesses.length > 0) {
+            const bounds = L.latLngBounds([actualLocation.lat, actualLocation.lng], [actualLocation.lat, actualLocation.lng]);
+            displayGuesses.forEach(g => bounds.extend([g.location.lat, g.location.lng]));
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+        }
+    }
+
+  }, [selectedLocation, actualLocation, guesses, currentUserId, interactive]);
+
+  // --- Handlers ---
 
   const handleSearch = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!searchQuery.trim()) return;
-      
       setIsSearching(true);
       const results = await searchAddress(searchQuery);
       setIsSearching(false);
-
       if (results.length > 0) {
-          const first = results[0];
-          const loc = { lat: first.lat, lng: first.lng };
-          
-          if (mapRef.current) {
-              mapRef.current.setView([loc.lat, loc.lng], 15);
-          }
-          if (onLocationSelect) {
-              onLocationSelect(loc, first.displayName);
-          }
+          const loc = { lat: results[0].lat, lng: results[0].lng };
+          mapRef.current?.setView([loc.lat, loc.lng], 15);
+          onLocationSelect?.(loc, results[0].displayName);
       } else {
-          alert('未找到地址，请尝试更详细的描述');
+          alert('未找到地址');
       }
   };
 
-  const handleZoomIn = (e: React.MouseEvent) => {
-      e.stopPropagation();
-      mapRef.current?.zoomIn();
-  };
-
-  const handleZoomOut = (e: React.MouseEvent) => {
-      e.stopPropagation();
-      mapRef.current?.zoomOut();
+  const handleZoom = (delta: number) => {
+      if (delta > 0) mapRef.current?.zoomIn();
+      else mapRef.current?.zoomOut();
   };
 
   return (
-    <div className="relative w-full h-full group">
+    <div className="relative w-full h-full bg-gray-100">
         {/* Search Bar (Only Create Mode) */}
         {enableSearch && isOpen && (
             <div className="absolute top-4 left-4 right-16 z-[1000]">
@@ -196,13 +235,13 @@ const GameMap: React.FC<GameMapProps> = ({
                         type="text" 
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="输入地址..."
+                        placeholder="搜索地点..."
                         className="flex-1 bg-white text-black px-4 py-3 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     />
                     <button 
                         type="submit" 
                         disabled={isSearching}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-full font-bold disabled:opacity-50 whitespace-nowrap text-sm"
+                        className="bg-blue-600 text-white px-4 py-2 rounded-full font-bold text-sm"
                     >
                         {isSearching ? '...' : '搜索'}
                     </button>
@@ -212,23 +251,15 @@ const GameMap: React.FC<GameMapProps> = ({
 
         {/* Custom Zoom Controls */}
         <div className="absolute top-20 left-4 z-[900] flex flex-col gap-3">
-             <button 
-                onClick={handleZoomIn}
-                className="w-10 h-10 bg-white rounded-full text-gray-800 shadow-lg flex items-center justify-center hover:bg-gray-100 active:scale-95 transition-transform"
-                aria-label="Zoom In"
-             >
-                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+             <button onClick={(e) => { e.stopPropagation(); handleZoom(1); }} className="w-10 h-10 bg-white rounded-full text-gray-800 shadow-lg flex items-center justify-center hover:bg-gray-100">
+                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
              </button>
-             <button 
-                onClick={handleZoomOut}
-                className="w-10 h-10 bg-white rounded-full text-gray-800 shadow-lg flex items-center justify-center hover:bg-gray-100 active:scale-95 transition-transform"
-                aria-label="Zoom Out"
-             >
-                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+             <button onClick={(e) => { e.stopPropagation(); handleZoom(-1); }} className="w-10 h-10 bg-white rounded-full text-gray-800 shadow-lg flex items-center justify-center hover:bg-gray-100">
+                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
              </button>
         </div>
 
-        <div ref={mapContainerRef} className="w-full h-full bg-gray-200" />
+        <div ref={mapContainerRef} className="w-full h-full" />
     </div>
   );
 };

@@ -1,34 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { GameMode, GameData, LatLng, GuessResult } from './types';
+import { GameMode, GameData, LatLng, Guess, User } from './types';
 import MosaicCanvas from './components/MosaicCanvas';
 import GameMap from './components/GameMap';
-import { saveGame, getGameById, generateId, getGames } from './services/storageService';
+import { 
+    saveGame, getGameById, generateId, 
+    getCurrentUser, saveCurrentUser, getNextUnplayedGame, 
+    saveGuess, getGuessesForGame, getUserGuesses, hasUserPlayed 
+} from './services/storageService';
 import { getAddressFromCoords } from './services/geocodingService';
 
 // Declare EXIF global from CDN
 declare var EXIF: any;
 
-// Constants
-const DEFAULT_LOCATION: LatLng = { lat: 39.9055, lng: 116.3976 };
-
 // Icons
-const IconMap = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
-);
-const IconClose = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-);
-const IconPlus = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-);
-const IconCheck = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-);
-const IconUndo = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
-);
+const IconMap = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>;
+const IconClose = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>;
+const IconPlus = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
+const IconCheck = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>;
+const IconUndo = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>;
+const IconPlay = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>;
+const IconHistory = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>;
 
-// Checkerboard Mosaic Icon
 const IconMosaic = () => (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <rect x="2" y="2" width="20" height="20" rx="2" stroke="currentColor" strokeWidth="2"/>
@@ -47,440 +39,545 @@ const IconMosaic = () => (
 // Helpers
 const calculateDistance = (pos1: LatLng, pos2: LatLng): number => {
   if (!pos1 || !pos2) return 0;
-  const R = 6371e3; // metres
+  const R = 6371e3; 
   const φ1 = pos1.lat * Math.PI/180;
   const φ2 = pos2.lat * Math.PI/180;
   const Δφ = (pos2.lat - pos1.lat) * Math.PI/180;
   const Δλ = (pos2.lng - pos1.lng) * Math.PI/180;
-
-  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-          Math.cos(φ1) * Math.cos(φ2) *
-          Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
   return R * c;
 };
 
 const calculateScore = (distance: number): number => {
   if (distance < 50) return 5000;
-  const score = 5000 * Math.exp(-distance / 2000000); 
-  return Math.round(score);
+  return Math.round(5000 * Math.exp(-distance / 2000000));
 };
 
 const App = () => {
+  const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [mode, setMode] = useState<GameMode>(GameMode.HOME);
-  const [currentGame, setCurrentGame] = useState<GameData | null>(null);
   
-  // Create State
+  // Data State
+  const [currentGame, setCurrentGame] = useState<GameData | null>(null);
+  const [currentGuesses, setCurrentGuesses] = useState<Guess[]>([]); // For Review Mode
+  
+  // Create Mode State
   const [createImage, setCreateImage] = useState<string | null>(null);
   const [createImageHistory, setCreateImageHistory] = useState<string[]>([]);
   const [createLocation, setCreateLocation] = useState<LatLng | null>(null);
   const [createLocationName, setCreateLocationName] = useState<string>("");
   const [isMosaicMode, setIsMosaicMode] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
 
-  // Play/Shared State
+  // Play Mode State
   const [userGuess, setUserGuess] = useState<LatLng | null>(null);
   const [isMapOpen, setIsMapOpen] = useState(false);
-  const [result, setResult] = useState<GuessResult | null>(null);
+  const [myResult, setMyResult] = useState<Guess | null>(null);
 
-  // Router simulation
+  // History / Recent
+  const [recentPlayed, setRecentPlayed] = useState<Guess[]>([]);
+  
+  // Init User
   useEffect(() => {
-    const handleHashChange = () => {
+    const init = async () => {
+        setLoading(true);
+        const user = await getCurrentUser();
+        setCurrentUser(user);
+        await refreshHistory(user.id);
+        setLoading(false);
+    };
+    init();
+  }, []);
+
+  const refreshHistory = async (userId: string) => {
+      const history = await getUserGuesses(userId);
+      setRecentPlayed(history);
+  };
+
+  const handleEditName = async () => {
+      if (!currentUser) return;
+      const newName = prompt("请输入新的昵称:", currentUser.name);
+      if (newName && newName.trim()) {
+          const updated = { ...currentUser, name: newName.trim() };
+          await saveCurrentUser(updated);
+          setCurrentUser(updated);
+      }
+  };
+
+  // Router logic
+  useEffect(() => {
+    const handleHashChange = async () => {
+      if (!currentUser) return;
+      
       const hash = window.location.hash;
+      
       if (hash.startsWith('#play/')) {
+        setLoading(true);
         const id = hash.split('/')[1];
-        const game = getGameById(id);
+        const game = await getGameById(id);
+        
         if (game) {
-          setCurrentGame(game);
-          setMode(GameMode.PLAY);
-          setResult(null);
-          setUserGuess(null);
-          setIsMapOpen(false);
+            // Check if played
+            const played = await hasUserPlayed(id, currentUser.id);
+            if (played) {
+                window.location.hash = `#review/${id}`;
+            } else {
+                startPlay(game);
+            }
         } else {
-          alert('Game not found!');
+          alert('Challenge not found');
           window.location.hash = '';
-          setMode(GameMode.HOME);
         }
+        setLoading(false);
+
+      } else if (hash.startsWith('#review/')) {
+          setLoading(true);
+          const id = hash.split('/')[1];
+          const game = await getGameById(id);
+          if (game) {
+              await startReview(game);
+          } else {
+              window.location.hash = '';
+          }
+          setLoading(false);
+
       } else if (hash === '#create') {
         setMode(GameMode.CREATE);
-        setCreateImage(null);
-        setCreateImageHistory([]);
-        setCreateLocation(null);
-        setCreateLocationName("");
-        setIsMapOpen(false);
-        setIsMosaicMode(false);
+        resetCreateState();
+
+      } else if (hash === '#history') {
+        setMode(GameMode.HISTORY);
+
       } else {
         setMode(GameMode.HOME);
+        // Refresh history when returning home
+        refreshHistory(currentUser.id);
       }
     };
 
     window.addEventListener('hashchange', handleHashChange);
-    handleHashChange(); // Init
+    // If we're not loading and have a user, handle the initial hash
+    if (!loading && currentUser) {
+        handleHashChange(); 
+    }
+    
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+  }, [currentUser, loading]);
 
-  // --- Handlers ---
+  const resetCreateState = () => {
+    setCreateImage(null);
+    setCreateImageHistory([]);
+    setCreateLocation(null);
+    setCreateLocationName("");
+    setIsMapOpen(false);
+    setIsMosaicMode(false);
+    setIsPublishing(false);
+  };
+
+  const startPlay = (game: GameData) => {
+      setCurrentGame(game);
+      setMode(GameMode.PLAY);
+      setUserGuess(null);
+      setIsMapOpen(false);
+      setMyResult(null);
+  };
+
+  const startReview = async (game: GameData) => {
+      setCurrentGame(game);
+      setMode(GameMode.REVIEW);
+      const guesses = await getGuessesForGame(game.id);
+      setCurrentGuesses(guesses);
+      
+      // Find my specific result if available
+      if (currentUser) {
+          const mine = guesses.find(g => g.userId === currentUser.id);
+          if (mine) setMyResult(mine);
+      }
+      setIsMapOpen(true); 
+  };
+
+  // --- Actions ---
+
+  const handleStartRandom = async () => {
+      if (!currentUser) return;
+      setLoading(true);
+      const game = await getNextUnplayedGame(currentUser.id);
+      setLoading(false);
+      
+      if (game) {
+          window.location.hash = `#play/${game.id}`;
+      } else {
+          alert("太棒了！你已经完成了所有现有挑战。没有新挑战了，欢迎上传你自己的拍摄！");
+      }
+  };
+
+  const handleCreateGame = async () => {
+    if (!createImage || !createLocation || !currentUser) return;
+    
+    setIsPublishing(true);
+    const newGame: GameData = {
+      id: generateId(),
+      imageData: createImage,
+      location: createLocation,
+      locationName: createLocationName,
+      authorId: currentUser.id,
+      authorName: currentUser.name,
+      createdAt: Date.now()
+    };
+    
+    const success = await saveGame(newGame);
+    setIsPublishing(false);
+
+    if (success) {
+        alert("挑战发布成功！");
+        window.location.hash = '';
+    } else {
+        alert("发布失败，请重试");
+    }
+  };
+
+  const handleGuess = async () => {
+    if (!userGuess || !currentGame || !currentUser) return;
+    
+    setLoading(true);
+    const distance = calculateDistance(currentGame.location, userGuess);
+    const score = calculateScore(distance);
+    
+    const newGuess: Guess = {
+        id: generateId(),
+        gameId: currentGame.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        userAvatarSeed: currentUser.avatarSeed,
+        location: userGuess,
+        distance,
+        score,
+        timestamp: Date.now()
+    };
+    
+    await saveGuess(newGuess);
+    // Go to review mode
+    window.location.hash = `#review/${currentGame.id}`;
+  };
+
+  // --- Components for Views ---
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (evt) => {
-        const result = evt.target?.result as string;
-        setCreateImage(result);
-        setCreateImageHistory([]); // Reset history on new upload
+        setCreateImage(evt.target?.result as string);
+        setCreateImageHistory([]);
       };
       reader.readAsDataURL(file);
-
-      // Try EXIF
       if (typeof EXIF !== 'undefined') {
           EXIF.getData(file as any, function(this: any) {
-              try {
-                  const lat = EXIF.getTag(this, "GPSLatitude");
+              const lat = EXIF.getTag(this, "GPSLatitude");
+              const lng = EXIF.getTag(this, "GPSLongitude");
+              if (lat && lng) {
+                  const toDecimal = (coord: number[], ref: string) => {
+                      let res = coord[0] + coord[1] / 60 + coord[2] / 3600;
+                      if (ref === "S" || ref === "W") res *= -1;
+                      return res;
+                  };
                   const latRef = EXIF.getTag(this, "GPSLatitudeRef");
-                  const lng = EXIF.getTag(this, "GPSLongitude");
                   const lngRef = EXIF.getTag(this, "GPSLongitudeRef");
-
-                  if (lat && latRef && lng && lngRef) {
-                      const toDecimal = (coord: number[], ref: string) => {
-                          let res = coord[0] + coord[1] / 60 + coord[2] / 3600;
-                          if (ref === "S" || ref === "W") res *= -1;
-                          return res;
-                      };
-                      const loc = {
-                          lat: toDecimal(lat, latRef),
-                          lng: toDecimal(lng, lngRef)
-                      };
+                  if (latRef && lngRef) {
+                      const loc = { lat: toDecimal(lat, latRef), lng: toDecimal(lng, lngRef) };
                       setCreateLocation(loc);
-                      
-                      // Auto-fetch location name immediately
-                      getAddressFromCoords(loc.lat, loc.lng).then(name => {
-                          setCreateLocationName(name);
-                      });
-                  } else {
-                      setCreateLocation(null);
+                      getAddressFromCoords(loc.lat, loc.lng).then(setCreateLocationName);
                   }
-              } catch (err) {
-                  console.warn("EXIF parsing failed", err);
-                  setCreateLocation(null);
               }
           });
       }
     }
   };
 
-  const handleCreateImageUpdate = (newImageBase64: string) => {
-      // Save current state to history before updating
-      if (createImage) {
-          setCreateImageHistory(prev => {
-              const newHistory = [...prev, createImage];
-              return newHistory.slice(-5); // Keep max 5 steps
-          });
-      }
-      setCreateImage(newImageBase64);
-  };
+  // --- Loading View ---
+  if (loading && !currentGame && mode !== GameMode.CREATE) {
+      return (
+          <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">
+              <div className="text-center">
+                  <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                  <p>加载数据中...</p>
+              </div>
+          </div>
+      );
+  }
 
-  const handleUndo = () => {
-      if (createImageHistory.length === 0) return;
-      
-      const previousImage = createImageHistory[createImageHistory.length - 1];
-      const newHistory = createImageHistory.slice(0, -1);
-      
-      setCreateImage(previousImage);
-      setCreateImageHistory(newHistory);
-  };
-
-  const handleCreateGame = () => {
-    if (!createImage) {
-        alert("请上传图片");
-        return;
-    }
-    if (!createLocation) {
-        alert("请在地图上选择并确认位置");
-        setIsMapOpen(true);
-        return;
-    }
-    
-    const newGame: GameData = {
-      id: generateId(),
-      imageData: createImage,
-      location: createLocation,
-      locationName: createLocationName,
-      author: 'User',
-      createdAt: Date.now()
-    };
-    saveGame(newGame);
-    
-    // Reset to Home properly
-    window.location.hash = '';
-    setMode(GameMode.HOME);
-    alert("挑战发布成功！请在列表中选择挑战。");
-  };
-
-  const handleCreateLocationSelect = (latlng: LatLng, name?: string) => {
-      setCreateLocation(latlng);
-      if (name) setCreateLocationName(name);
-  };
-
-  const handleGuess = () => {
-    if (!userGuess || !currentGame) return;
-    const distance = calculateDistance(currentGame.location, userGuess);
-    const score = calculateScore(distance);
-    setResult({
-      distance,
-      score,
-      guessLocation: userGuess,
-      actualLocation: currentGame.location
-    });
-    setMode(GameMode.RESULT);
-    setIsMapOpen(false); // Map becomes part of result view
-  };
-
-  // --- Render Views ---
+  // --- Views ---
 
   if (mode === GameMode.HOME) {
-    const savedGames = getGames();
+    const recentUnique = recentPlayed.slice(0, 2);
+
     return (
-      <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-6 space-y-8">
-        <h1 className="text-4xl font-bold bg-gradient-to-r from-orange-400 to-amber-600 bg-clip-text text-transparent">
-          GeoGuesser
-        </h1>
-        <div className="grid gap-4 w-full max-w-xs">
-          <button 
-            onClick={() => window.location.hash = '#create'}
-            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold shadow-lg transition-transform active:scale-95"
-          >
-            <IconPlus /> 创建新挑战
-          </button>
+      <div className="min-h-screen bg-gray-900 text-white flex flex-col p-6">
+        {/* Header / Profile */}
+        <div className="flex items-center justify-between mb-8">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-orange-400 to-amber-600 bg-clip-text text-transparent">
+               GeoGuesser
+            </h1>
+            <div className="flex items-center gap-2 cursor-pointer" onClick={handleEditName}>
+                <div className="text-right">
+                    <div className="text-xs text-gray-400">ID: {currentUser?.id.substr(0,4)}</div>
+                    <div className="font-bold text-sm">{currentUser?.name}</div>
+                </div>
+                <img 
+                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser?.avatarSeed}&backgroundColor=b6e3f4`} 
+                    className="w-10 h-10 rounded-full border border-gray-600 bg-gray-800"
+                    alt="avatar"
+                />
+            </div>
         </div>
-        {savedGames.length > 0 && (
-            <div className="w-full max-w-md mt-8">
-                <h2 className="text-lg font-semibold mb-4 text-gray-300">最近的挑战</h2>
-                <div className="space-y-3">
-                    {savedGames.map(g => (
-                        <div key={g.id} 
-                             onClick={() => window.location.hash = `#play/${g.id}`}
-                             className="flex items-center p-3 bg-gray-800 rounded-lg cursor-pointer hover:bg-gray-700 transition">
-                            <img src={g.imageData} alt="thumb" className="w-12 h-12 object-cover rounded mr-3" />
-                            <div className="flex-1 overflow-hidden">
-                                <div className="text-sm font-medium text-white truncate">{g.locationName || `挑战 #${g.id}`}</div>
-                                <div className="text-xs text-gray-500">{new Date(g.createdAt).toLocaleDateString()}</div>
-                            </div>
-                            <div className="text-orange-400 font-bold text-sm">Play</div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        )}
-      </div>
-    );
-  }
 
-  // Unified Layout for Create and Play
-  if (mode === GameMode.CREATE || mode === GameMode.PLAY || mode === GameMode.RESULT) {
-    
-    // Determine what to display
-    const displayImage = mode === GameMode.CREATE ? createImage : currentGame?.imageData;
-    const isCreate = mode === GameMode.CREATE;
-    
-    if (!displayImage && isCreate) {
-         // Upload Screen
-         return (
-            <div className="h-[100dvh] flex flex-col bg-gray-900 text-white">
-                <div className="h-14 flex items-center justify-between px-4 bg-gray-800 border-b border-gray-700 z-20">
-                    <button onClick={() => window.location.hash = ''} className="text-gray-400"><IconClose /></button>
-                    <span className="font-bold">创建题目</span>
-                    <div className="w-6"></div>
-                </div>
-                <div className="flex-1 flex flex-col items-center justify-center p-6 text-gray-400 border-2 border-dashed border-gray-700 m-4 rounded-xl hover:border-blue-500 transition-colors">
-                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" id="upload" />
-                    <label htmlFor="upload" className="flex flex-col items-center cursor-pointer w-full h-full justify-center">
-                        <IconPlus />
-                        <span className="mt-2">点击上传图片</span>
-                    </label>
-                </div>
-            </div>
-         );
-    }
-
-    return (
-      <div className="relative w-full h-[100dvh] overflow-hidden bg-black flex flex-col">
-        {/* Top Bar */}
-        <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-black/80 to-transparent z-10 flex items-center justify-between px-4 pt-2">
-            <button onClick={() => window.location.hash = ''} className="text-white bg-black/20 p-2 rounded-full backdrop-blur-sm hover:bg-white/20">
-                <IconClose />
+        {/* Action Buttons */}
+        <div className="space-y-4 mb-10">
+            <button 
+                onClick={handleStartRandom}
+                disabled={loading}
+                className="w-full py-5 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl shadow-lg flex items-center justify-center gap-3 text-lg font-bold active:scale-95 transition-transform disabled:opacity-50"
+            >
+                {loading ? '加载中...' : <><IconPlay /> 开始新挑战</>}
             </button>
             
-            {isCreate ? (
-                <button 
-                    onClick={handleCreateGame} 
-                    className={`px-4 py-1.5 rounded-full font-bold backdrop-blur-md transition ${createLocation ? 'bg-orange-500 text-white shadow-lg' : 'bg-white/10 text-gray-400 cursor-not-allowed'}`}
-                >
-                    发布挑战
-                </button>
-            ) : (
-                <div className="flex flex-col items-end text-white drop-shadow-md">
-                    <span className="text-xs opacity-80">当前回合</span>
-                    <span className="font-bold text-lg text-orange-400">1 / 1</span>
-                </div>
-            )}
-        </div>
-
-        {/* Main Image Content */}
-        <div className="flex-1 w-full flex items-center justify-center bg-black relative">
-            {isCreate ? (
-                <MosaicCanvas 
-                    imageSrc={displayImage!} 
-                    onImageUpdate={handleCreateImageUpdate}
-                    isEditing={isMosaicMode} 
-                />
-            ) : (
-                <img src={displayImage!} className="max-w-full max-h-full object-contain" alt="Game Target" />
-            )}
-            
-            {/* Create Mode: Location Text Display */}
-            {isCreate && createLocation && !isMapOpen && (
-                <div className="absolute bottom-28 left-0 right-0 flex justify-center z-10 px-6">
-                    <div className="bg-black/60 backdrop-blur-md text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 border border-white/10 shadow-lg max-w-full">
-                        <span className="truncate">{createLocationName || `${createLocation.lat.toFixed(4)}, ${createLocation.lng.toFixed(4)}`}</span>
-                        <IconCheck />
-                    </div>
-                </div>
-            )}
-        </div>
-
-        {/* Tools / Overlays for Create Mode */}
-        {isCreate && (
-             <div className="absolute bottom-10 left-6 right-6 flex items-end justify-between z-20 pointer-events-none gap-4">
-                 
-                 <div className="flex items-center gap-4 pointer-events-auto">
-                    {/* Mosaic Toggle */}
-                     <button 
-                        onClick={() => setIsMosaicMode(!isMosaicMode)}
-                        className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center border-2 border-white/10 transition-all active:scale-90 ${isMosaicMode ? 'bg-orange-500 text-white ring-2 ring-orange-300' : 'bg-gray-800/90 text-white backdrop-blur-xl'}`}
-                        aria-label="Toggle Mosaic"
-                    >
-                        <IconMosaic />
-                    </button>
-                    
-                    {/* Undo Button */}
-                    <button 
-                        onClick={handleUndo}
-                        disabled={createImageHistory.length === 0}
-                        className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center border-2 border-white/10 transition-all active:scale-90 
-                        ${createImageHistory.length > 0 ? 'bg-gray-800/90 text-white backdrop-blur-xl hover:bg-gray-700' : 'bg-gray-900/50 text-gray-500 cursor-not-allowed border-gray-800'}`}
-                        aria-label="Undo Mosaic"
-                    >
-                        <IconUndo />
-                    </button>
-                 </div>
-                
-                {/* Map Button */}
-                <button 
-                    onClick={() => { setIsMapOpen(true); setIsMosaicMode(false); }}
-                    className="pointer-events-auto w-14 h-14 bg-blue-600 rounded-full shadow-2xl flex items-center justify-center text-white border-2 border-white/10 active:scale-90 transition-transform ml-auto"
-                    aria-label="Set Location"
-                >
-                    <IconMap />
-                </button>
-             </div>
-        )}
-
-        {/* Play Mode Buttons - AI Removed */}
-        {mode === GameMode.PLAY && !isMapOpen && (
-            <div className="absolute bottom-8 right-6 z-20 flex flex-col gap-4">
-                {/* Map Button */}
-                <button 
-                    onClick={() => setIsMapOpen(true)}
-                    className="w-16 h-16 bg-orange-500 rounded-full shadow-2xl flex items-center justify-center text-white hover:scale-110 transition-transform active:scale-95 border-4 border-white/20"
-                >
-                    <IconMap />
-                </button>
-            </div>
-        )}
-
-        {/* Unified Map Sheet */}
-        <div 
-            className={`absolute bottom-0 left-0 right-0 bg-gray-900 transition-all duration-300 ease-out z-30 rounded-t-3xl shadow-[0_-5px_30px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden
-            ${mode === GameMode.RESULT ? 'h-[60%]' : isMapOpen ? 'h-[80%]' : 'h-0'}`}
-        >
-            {/* Handle Bar / Header area */}
-            <div 
-                className="w-full h-6 flex items-center justify-center cursor-pointer hover:bg-white/5 rounded-t-3xl shrink-0 z-10 relative"
-                onClick={() => mode !== GameMode.RESULT && setIsMapOpen(false)}
+            <button 
+                onClick={() => window.location.hash = '#create'}
+                className="w-full py-5 bg-gray-800 border border-gray-700 rounded-2xl shadow-lg flex items-center justify-center gap-3 text-lg font-bold hover:bg-gray-700 active:scale-95 transition-transform"
             >
-                 {mode !== GameMode.RESULT && (
-                     <div className="w-12 h-1.5 bg-gray-600 rounded-full" />
-                 )}
+                <IconPlus /> 创建新挑战
+            </button>
+        </div>
+
+        {/* Recent Section */}
+        <div className="flex-1">
+            <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-200">最近的挑战</h2>
+                <button onClick={() => window.location.hash = '#history'} className="text-sm text-blue-400 font-medium">查看更多</button>
             </div>
             
-            {/* Close Button on Map Sheet (Top Right) */}
-            {mode === GameMode.PLAY && isMapOpen && (
-                <button 
-                    onClick={() => setIsMapOpen(false)}
-                    className="absolute top-4 right-4 w-10 h-10 bg-black/80 text-white rounded-full flex items-center justify-center z-[1100] border border-white/20 shadow-lg hover:bg-black active:scale-95"
-                >
-                    <IconClose />
-                </button>
-            )}
-
-            {/* Map Area */}
-            <div className="flex-1 relative mx-0 bg-gray-800 border-t border-gray-700">
-                <GameMap 
-                   interactive={mode !== GameMode.RESULT}
-                   isOpen={isMapOpen} 
-                   enableSearch={isCreate}
-                   // Important: For PLAY mode, pass null (or undefined) for initialCenter so it defaults to the world view
-                   initialCenter={isCreate ? createLocation : (mode === GameMode.RESULT ? currentGame?.location : null)}
-                   onLocationSelect={isCreate ? handleCreateLocationSelect : (latlng) => setUserGuess(latlng)}
-                   selectedLocation={isCreate ? createLocation : (mode === GameMode.PLAY ? userGuess : result?.guessLocation)}
-                   actualLocation={mode === GameMode.RESULT ? currentGame?.location : undefined}
-                />
-                
-                {/* Action Buttons inside Map Sheet */}
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent pointer-events-none flex justify-center pb-8 z-[1000]">
-                     {mode === GameMode.PLAY && (
-                         <button 
-                            onClick={handleGuess}
-                            disabled={!userGuess}
-                            className="pointer-events-auto w-full max-w-sm bg-orange-600 disabled:bg-gray-600 disabled:text-gray-300 text-white font-bold py-3 rounded-xl shadow-lg transition-colors text-lg flex items-center justify-center gap-2"
-                        >
-                            <IconCheck /> 确定选择
-                        </button>
-                     )}
-                     {isCreate && (
-                         <button 
-                            onClick={() => {
-                                if (!createLocation) {
-                                    alert("请先在地图上点击选择一个位置");
-                                    return;
-                                }
-                                setIsMapOpen(false);
-                            }}
-                            className="pointer-events-auto w-full max-w-sm bg-blue-600 text-white font-bold py-3 rounded-xl shadow-lg transition-colors flex items-center justify-center gap-2 text-lg"
-                        >
-                            <IconCheck /> 确认位置
-                        </button>
-                     )}
-                </div>
+            <div className="space-y-4">
+                {recentUnique.length === 0 ? (
+                    <div className="text-gray-500 text-center py-8">暂无挑战记录，快去开始吧！</div>
+                ) : (
+                    recentUnique.map(guess => {
+                        // We need the game data for the image. 
+                        // Since we have async loading, getting game data for the list can be tricky.
+                        // Ideally recentPlayed should contain game info, or we fetch it.
+                        // For MVP, we'll try to fetch on render or load. 
+                        // BUT: React useEffect in loop is bad. 
+                        // Let's assume we can fetch basic details or the cache is hot.
+                        // A better way for Home list: fetch recent guesses AND their related games.
+                        // For now, let's load specific game data on click, and just show generic info or try to load.
+                        
+                        // We will rely on a small trick: StorageService's getGameById is async.
+                        // To display images here immediately, we need "RecentPlayed" to actually allow joining Game Data.
+                        // Let's use a temporary placeholder if data isn't loaded, OR, better:
+                        // Update storageService to return joined data for history.
+                        // Due to complexity limit, we might just show the Score and Date if Image is missing,
+                        // OR fetch image on the fly component-side.
+                        return (
+                            <AsyncGameCard key={guess.id} guess={guess} />
+                        );
+                    })
+                )}
             </div>
-
-            {/* Result Info Overlay */}
-            {mode === GameMode.RESULT && result && (
-                <div className="absolute top-2 left-4 right-4 z-[2000] pointer-events-none flex justify-center">
-                   <div className="bg-gray-800/90 backdrop-blur-md px-6 py-3 rounded-2xl border border-gray-600 text-center shadow-2xl min-w-[200px]">
-                        <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">距离目标</div>
-                        <div className="text-2xl font-black text-white">{(result.distance / 1000).toFixed(2)} km</div>
-                        <div className="text-sm font-bold text-orange-500 mt-1">+{result.score} 分</div>
-                   </div>
-                </div>
-            )}
         </div>
       </div>
     );
   }
 
-  return <div>Error State</div>;
+  if (mode === GameMode.HISTORY) {
+      return (
+        <div className="min-h-screen bg-gray-900 text-white p-4">
+             <div className="flex items-center gap-4 mb-6">
+                 <button onClick={() => window.location.hash = ''} className="p-2 bg-gray-800 rounded-full"><IconClose /></button>
+                 <h1 className="text-xl font-bold">挑战记录</h1>
+             </div>
+             <div className="grid grid-cols-2 gap-4">
+                 {recentPlayed.map(guess => (
+                     <AsyncGameCard key={guess.id} guess={guess} simple />
+                 ))}
+             </div>
+        </div>
+      );
+  }
+
+  // Unified Create / Play / Review View
+  if ([GameMode.CREATE, GameMode.PLAY, GameMode.REVIEW].includes(mode)) {
+      const isCreate = mode === GameMode.CREATE;
+      const isReview = mode === GameMode.REVIEW;
+      const displayImage = isCreate ? createImage : currentGame?.imageData;
+
+      if (!displayImage && isCreate) {
+          return (
+             <div className="h-[100dvh] bg-gray-900 text-white flex flex-col">
+                 <div className="h-14 flex items-center px-4 border-b border-gray-800">
+                     <button onClick={() => window.location.hash = ''}><IconClose /></button>
+                     <span className="mx-auto font-bold">上传题目</span>
+                     <div className="w-6"/>
+                 </div>
+                 <div className="flex-1 p-6 flex items-center justify-center">
+                     <input type="file" accept="image/*" id="upload" onChange={handleImageUpload} className="hidden" />
+                     <label htmlFor="upload" className="flex flex-col items-center gap-4 text-gray-500 p-8 border-2 border-dashed border-gray-700 rounded-xl w-full h-64 justify-center cursor-pointer hover:border-blue-500 hover:text-blue-500 transition">
+                         <IconPlus />
+                         <span>点击上传照片</span>
+                     </label>
+                 </div>
+             </div>
+          )
+      }
+
+      return (
+          <div className="relative w-full h-[100dvh] bg-black overflow-hidden flex flex-col">
+              {/* Header */}
+              <div className="absolute top-0 w-full h-16 bg-gradient-to-b from-black/80 to-transparent z-10 flex items-center justify-between px-4 pt-2">
+                  <button onClick={() => window.location.hash = ''} className="p-2 bg-black/30 rounded-full text-white backdrop-blur"><IconClose /></button>
+                  
+                  {isCreate && (
+                      <button 
+                        onClick={handleCreateGame}
+                        disabled={isPublishing}
+                        className={`px-4 py-1.5 rounded-full font-bold backdrop-blur-md transition ${createLocation && !isPublishing ? 'bg-orange-500 text-white' : 'bg-white/10 text-gray-400'}`}
+                      >{isPublishing ? '发布中...' : '发布'}</button>
+                  )}
+                  {isReview && myResult && (
+                      <div className="flex flex-col items-end text-white">
+                          <span className="text-xs opacity-70">得分</span>
+                          <span className="font-bold text-xl text-orange-400">{myResult.score}</span>
+                      </div>
+                  )}
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 flex items-center justify-center relative">
+                  {isCreate ? (
+                      <MosaicCanvas 
+                        imageSrc={displayImage!} 
+                        onImageUpdate={(b64) => {
+                            if(createImage) setCreateImageHistory(prev => [...prev, createImage].slice(-5));
+                            setCreateImage(b64);
+                        }}
+                        isEditing={isMosaicMode} 
+                      />
+                  ) : (
+                      <img src={displayImage!} className="max-w-full max-h-full object-contain" />
+                  )}
+
+                  {/* Create Location Tag */}
+                  {isCreate && createLocation && !isMapOpen && (
+                      <div className="absolute bottom-28 bg-black/60 backdrop-blur px-4 py-2 rounded-lg text-white flex items-center gap-2 border border-white/10">
+                          <span className="text-sm truncate max-w-[200px]">{createLocationName}</span>
+                          <IconCheck />
+                      </div>
+                  )}
+              </div>
+
+              {/* Create Tools */}
+              {isCreate && (
+                  <div className="absolute bottom-8 left-6 right-6 flex justify-between z-20 pointer-events-none">
+                      <div className="flex gap-4 pointer-events-auto">
+                          <button onClick={() => setIsMosaicMode(!isMosaicMode)} className={`w-12 h-12 rounded-full flex items-center justify-center border-2 border-white/20 shadow-lg ${isMosaicMode ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300'}`}><IconMosaic /></button>
+                          <button onClick={() => { if(createImageHistory.length){ setCreateImage(createImageHistory.pop()!); setCreateImageHistory([...createImageHistory]); }}} disabled={!createImageHistory.length} className="w-12 h-12 rounded-full bg-gray-800 text-white flex items-center justify-center border-2 border-white/20 shadow-lg disabled:opacity-50"><IconUndo /></button>
+                      </div>
+                      <button onClick={() => { setIsMapOpen(true); setIsMosaicMode(false); }} className="pointer-events-auto w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-lg border-2 border-white/20"><IconMap /></button>
+                  </div>
+              )}
+
+              {/* Play Tools */}
+              {mode === GameMode.PLAY && !isMapOpen && (
+                  <div className="absolute bottom-8 right-6 z-20">
+                      <button onClick={() => setIsMapOpen(true)} className="w-16 h-16 bg-orange-500 rounded-full text-white flex items-center justify-center shadow-xl border-4 border-white/20 hover:scale-110 transition"><IconMap /></button>
+                  </div>
+              )}
+
+              {/* Map Sheet */}
+              <div className={`absolute bottom-0 w-full bg-gray-900 rounded-t-3xl transition-all duration-300 ease-out z-30 shadow-2xl flex flex-col overflow-hidden ${isReview ? 'h-[65%]' : isMapOpen ? 'h-[80%]' : 'h-0'}`}>
+                  {/* Handle */}
+                  {!isReview && (
+                      <div className="h-8 w-full flex items-center justify-center cursor-pointer hover:bg-white/5" onClick={() => setIsMapOpen(false)}>
+                          <div className="w-12 h-1.5 bg-gray-600 rounded-full" />
+                      </div>
+                  )}
+                  {/* Close Map Btn */}
+                  {mode === GameMode.PLAY && isMapOpen && (
+                      <button onClick={() => setIsMapOpen(false)} className="absolute top-4 right-4 w-10 h-10 bg-black/60 rounded-full text-white z-[1100] flex items-center justify-center"><IconClose /></button>
+                  )}
+
+                  <div className="flex-1 relative bg-gray-200">
+                      <GameMap 
+                          isOpen={isMapOpen || isReview}
+                          interactive={mode !== GameMode.REVIEW}
+                          enableSearch={isCreate}
+                          initialCenter={isCreate ? createLocation : null} 
+                          onLocationSelect={isCreate ? (l, n) => { setCreateLocation(l); if(n) setCreateLocationName(n); } : setUserGuess}
+                          selectedLocation={isCreate ? createLocation : (mode === GameMode.PLAY ? userGuess : null)}
+                          
+                          // Review Props
+                          actualLocation={isReview ? currentGame?.location : undefined}
+                          guesses={isReview ? currentGuesses : undefined}
+                          currentUserId={currentUser?.id}
+                      />
+
+                      {/* Map Action Buttons */}
+                      <div className="absolute bottom-8 w-full flex justify-center px-4 pointer-events-none z-[1000]">
+                          {mode === GameMode.PLAY && (
+                              <button onClick={handleGuess} disabled={!userGuess} className="pointer-events-auto w-full max-w-sm bg-orange-600 text-white font-bold py-3 rounded-xl shadow-lg disabled:bg-gray-600">
+                                  {loading ? '提交中...' : '确定选择'}
+                              </button>
+                          )}
+                          {isCreate && (
+                              <button onClick={() => { if(!createLocation) return; setIsMapOpen(false); }} className="pointer-events-auto w-full max-w-sm bg-blue-600 text-white font-bold py-3 rounded-xl shadow-lg">确认位置</button>
+                          )}
+                      </div>
+                  </div>
+              </div>
+          </div>
+      );
+  }
+
+  return <div>Loading...</div>;
 };
+
+// Internal Helper Component for Async List Items
+const AsyncGameCard = ({ guess, simple }: { guess: Guess, simple?: boolean }) => {
+    const [game, setGame] = useState<GameData | null>(null);
+
+    useEffect(() => {
+        getGameById(guess.gameId).then(setGame);
+    }, [guess.gameId]);
+
+    if (!game) return (
+        <div className={`bg-gray-800 rounded-xl overflow-hidden shadow-md animate-pulse ${simple ? 'h-40' : 'h-48'}`}>
+            <div className="bg-gray-700 w-full h-full"></div>
+        </div>
+    );
+
+    return (
+        <div 
+            onClick={() => window.location.hash = `#review/${game.id}`}
+            className={`bg-gray-800 rounded-xl overflow-hidden shadow-md active:scale-95 transition-transform cursor-pointer ${simple ? '' : ''}`}
+        >
+            <div className={`w-full relative ${simple ? 'h-32' : 'h-32'}`}>
+                <img src={game.imageData} className="w-full h-full object-cover" alt="thumb" />
+                <div className="absolute top-2 right-2 bg-black/60 backdrop-blur px-2 py-1 rounded text-xs font-bold text-orange-400">
+                    {guess.score}分
+                </div>
+            </div>
+            <div className="p-3">
+                <div className="truncate text-sm text-gray-300 font-medium">
+                    {game.locationName || "未知位置"}
+                </div>
+                {!simple && (
+                    <div className="text-xs text-gray-500 mt-1 flex justify-between">
+                        <span>{new Date(guess.timestamp).toLocaleDateString()}</span>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
 
 export default App;
