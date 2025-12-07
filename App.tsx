@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { GameMode, GameData, LatLng, Guess, User } from './types';
 import MosaicCanvas from './components/MosaicCanvas';
 import GameMap from './components/GameMap';
+import ImageViewer from './components/ImageViewer';
 import { 
     saveGame, getGameById, generateId, 
     getCurrentUser, saveCurrentUser, getNextUnplayedGame, 
@@ -252,6 +253,7 @@ const App = () => {
           const mine = guesses.find(g => g.userId === currentUser.id);
           if (mine) setMyResult(mine);
       }
+      // In review mode, we default to open, but user can close it
       setIsMapOpen(true); 
   };
 
@@ -490,14 +492,14 @@ const App = () => {
       return (
           <div className="relative w-full h-[100dvh] bg-black overflow-hidden flex flex-col">
               {/* Header */}
-              <div className="absolute top-0 w-full h-16 bg-gradient-to-b from-black/80 to-transparent z-10 flex items-center justify-between px-4 pt-2">
-                  <button onClick={() => window.location.hash = ''} className="p-2 bg-black/30 rounded-full text-white backdrop-blur"><IconClose /></button>
+              <div className="absolute top-0 w-full h-16 bg-gradient-to-b from-black/80 to-transparent z-10 flex items-center justify-between px-4 pt-2 pointer-events-none">
+                  <button onClick={() => window.location.hash = ''} className="pointer-events-auto p-2 bg-black/30 rounded-full text-white backdrop-blur"><IconClose /></button>
                   
                   {isCreate && (
                       <button 
                         onClick={handleCreateGame}
                         disabled={isPublishing}
-                        className={`px-4 py-1.5 rounded-full font-bold backdrop-blur-md transition ${createLocation && !isPublishing ? 'bg-orange-500 text-white' : 'bg-white/10 text-gray-400'}`}
+                        className={`pointer-events-auto px-4 py-1.5 rounded-full font-bold backdrop-blur-md transition ${createLocation && !isPublishing ? 'bg-orange-500 text-white' : 'bg-white/10 text-gray-400'}`}
                       >{isPublishing ? '发布中...' : '发布'}</button>
                   )}
                   {isReview && myResult && (
@@ -509,7 +511,7 @@ const App = () => {
               </div>
 
               {/* Content */}
-              <div className="flex-1 flex items-center justify-center relative">
+              <div className="flex-1 flex items-center justify-center relative bg-black">
                   {isCreate ? (
                       <MosaicCanvas 
                         imageSrc={displayImage!} 
@@ -520,12 +522,13 @@ const App = () => {
                         isEditing={isMosaicMode} 
                       />
                   ) : (
-                      <img src={displayImage!} className="max-w-full max-h-full object-contain" />
+                      // Use new ImageViewer for Play/Review
+                      <ImageViewer src={displayImage!} />
                   )}
 
                   {/* Create Location Tag */}
                   {isCreate && createLocation && !isMapOpen && (
-                      <div className="absolute bottom-28 bg-black/60 backdrop-blur px-4 py-2 rounded-lg text-white flex items-center gap-2 border border-white/10">
+                      <div className="absolute bottom-28 bg-black/60 backdrop-blur px-4 py-2 rounded-lg text-white flex items-center gap-2 border border-white/10 pointer-events-none">
                           <span className="text-sm truncate max-w-[200px]">{createLocationName}</span>
                           <IconCheck />
                       </div>
@@ -539,38 +542,50 @@ const App = () => {
                           <button onClick={() => setIsMosaicMode(!isMosaicMode)} className={`w-12 h-12 rounded-full flex items-center justify-center border-2 border-white/20 shadow-lg ${isMosaicMode ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300'}`}><IconMosaic /></button>
                           <button onClick={() => { if(createImageHistory.length){ setCreateImage(createImageHistory.pop()!); setCreateImageHistory([...createImageHistory]); }}} disabled={!createImageHistory.length} className="w-12 h-12 rounded-full bg-gray-800 text-white flex items-center justify-center border-2 border-white/20 shadow-lg disabled:opacity-50"><IconUndo /></button>
                       </div>
-                      <button onClick={() => { setIsMapOpen(true); setIsMosaicMode(false); }} className="pointer-events-auto w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-lg border-2 border-white/20"><IconMap /></button>
+                      <button onClick={(e) => { e.stopPropagation(); setIsMapOpen(true); setIsMosaicMode(false); }} className="pointer-events-auto w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-lg border-2 border-white/20"><IconMap /></button>
                   </div>
               )}
 
-              {/* Play Tools */}
-              {mode === GameMode.PLAY && !isMapOpen && (
+              {/* Play / Review Map Toggle Button */}
+              {/* Only show if map is closed. If map is open, the sheet covers this area or is managed there. */}
+              {!isMapOpen && !isCreate && (
                   <div className="absolute bottom-8 right-6 z-20">
-                      <button onClick={() => setIsMapOpen(true)} className="w-16 h-16 bg-orange-500 rounded-full text-white flex items-center justify-center shadow-xl border-4 border-white/20 hover:scale-110 transition"><IconMap /></button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setIsMapOpen(true); }} 
+                        className="w-16 h-16 bg-orange-500 rounded-full text-white flex items-center justify-center shadow-xl border-4 border-white/20 hover:scale-110 transition"
+                      >
+                          <IconMap />
+                      </button>
                   </div>
+              )}
+
+              {/* BACKDROP - Critical Fix for "Map immediately closing" */}
+              {isMapOpen && (
+                  <div 
+                    className="fixed inset-0 z-[25] bg-black/20" 
+                    onClick={() => setIsMapOpen(false)}
+                    onTouchStart={() => setIsMapOpen(false)}
+                  />
               )}
 
               {/* Map Sheet */}
               <div 
-                  className={`absolute bottom-0 w-full bg-gray-900 rounded-t-3xl transition-all duration-300 ease-out z-30 shadow-2xl flex flex-col overflow-hidden ${isReview ? 'h-[65%]' : isMapOpen ? 'h-[80%]' : 'h-0'}`}
-                  // IMPORTANT: Stop bubbling of clicks AND touches to prevent accidental closure of the map sheet
+                  className={`absolute bottom-0 w-full bg-gray-900 rounded-t-3xl transition-all duration-300 ease-out z-[30] shadow-2xl flex flex-col overflow-hidden ${isMapOpen ? (isReview ? 'h-[60%]' : 'h-[80%]') : 'h-0'}`}
+                  // IMPORTANT: Stop bubbling so clicking the sheet doesn't hit the backdrop or parent listeners
                   onClick={(e) => e.stopPropagation()} 
                   onTouchStart={(e) => e.stopPropagation()}
               >
                   {/* Handle - Click to Close */}
-                  {!isReview && (
-                      <div className="h-8 w-full flex items-center justify-center cursor-pointer hover:bg-white/5 bg-gray-900" onClick={() => setIsMapOpen(false)}>
-                          <div className="w-12 h-1.5 bg-gray-600 rounded-full" />
-                      </div>
-                  )}
+                  <div className="h-8 w-full flex items-center justify-center cursor-pointer hover:bg-white/5 bg-gray-900 shrink-0" onClick={() => setIsMapOpen(false)}>
+                      <div className="w-12 h-1.5 bg-gray-600 rounded-full" />
+                  </div>
+                  
                   {/* Close Map Btn - Explicit */}
-                  {mode === GameMode.PLAY && isMapOpen && (
-                      <button onClick={() => setIsMapOpen(false)} className="absolute top-4 right-4 w-10 h-10 bg-black/60 rounded-full text-white z-[1100] flex items-center justify-center"><IconClose /></button>
-                  )}
+                  <button onClick={() => setIsMapOpen(false)} className="absolute top-4 right-4 w-8 h-8 bg-black/60 rounded-full text-white z-[1100] flex items-center justify-center"><IconClose /></button>
 
                   <div className="flex-1 relative bg-gray-200">
                       <GameMap 
-                          isOpen={isMapOpen || isReview}
+                          isOpen={isMapOpen}
                           interactive={mode !== GameMode.REVIEW}
                           enableSearch={isCreate}
                           initialCenter={isCreate ? createLocation : null} 
@@ -608,10 +623,6 @@ const AsyncGameCard = ({ guess, simple }: { guess: Guess, simple?: boolean }) =>
     const [game, setGame] = useState<GameData | null>(null);
 
     useEffect(() => {
-        // Here we do need to fetch game data to show the image.
-        // For list views, it's better to NOT fetch full image data if possible,
-        // but our API structure (for now) has image in the game row.
-        // Future opt: create thumbnails bucket.
         getGameById(guess.gameId).then(setGame);
     }, [guess.gameId]);
 

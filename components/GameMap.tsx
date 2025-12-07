@@ -13,7 +13,7 @@ interface GameMapProps {
   guesses?: Guess[]; // List of all guesses to display in REVIEW mode
   currentUserId?: string; // To highlight the current user
   
-  interactive?: boolean;
+  interactive?: boolean; // If true, allows selecting points. If false, just viewing (but panning/zooming still allowed)
   isOpen?: boolean;
   enableSearch?: boolean;
 }
@@ -48,11 +48,16 @@ const GameMap: React.FC<GameMapProps> = ({
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
+    // We allow dragging/zoom even if interactive is false (Review Mode), 
+    // "interactive" here specifically means "Can I click to guess?"
     mapRef.current = L.map(mapContainerRef.current, {
       zoomControl: false,
       attributionControl: false,
       preferCanvas: true,
-      zoomSnap: 0.5
+      zoomSnap: 0.5,
+      dragging: true, // Always allow panning
+      touchZoom: true,
+      scrollWheelZoom: true
     }).setView([safeCenter.lat, safeCenter.lng], initialCenter ? 13 : 3);
 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
@@ -62,6 +67,7 @@ const GameMap: React.FC<GameMapProps> = ({
     }).addTo(mapRef.current);
 
     mapRef.current.on('click', async (e) => {
+      // Only allow setting a marker if interactive is true
       if (!interactive || !onLocationSelect) return;
       
       onLocationSelect({ lat: e.latlng.lat, lng: e.latlng.lng });
@@ -161,14 +167,13 @@ const GameMap: React.FC<GameMapProps> = ({
             return 0;
         });
 
-        // Limit to 15 as requested
-        const displayGuesses = sortedGuesses.slice(0, 15);
+        // Limit to 10 other players + 1 self + 1 actual = approx 12 max
+        const displayGuesses = sortedGuesses.slice(0, 12);
 
         displayGuesses.forEach(g => {
             const isMe = g.userId === currentUserId;
             
             // Generate Avatar Icon
-            // Using DiceBear for consistent avatars based on seed
             const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${g.userAvatarSeed || g.userId}&backgroundColor=b6e3f4`;
             
             const html = `
@@ -177,7 +182,7 @@ const GameMap: React.FC<GameMapProps> = ({
                     <div class="w-8 h-8 rounded-full border-2 ${isMe ? 'border-orange-500 z-50 scale-110' : 'border-white z-10'} bg-gray-800 overflow-hidden shadow-lg box-border transition-transform hover:scale-125">
                         <img src="${avatarUrl}" class="w-full h-full object-cover" />
                     </div>
-                    <!-- Name Bubble (Always show for others, or on hover) -->
+                    <!-- Name Bubble -->
                     <div class="${isMe ? 'hidden group-hover:block' : 'block'} absolute -top-8 left-1/2 -translate-x-1/2 bg-white/90 text-gray-900 text-[10px] px-2 py-0.5 rounded shadow-sm whitespace-nowrap font-bold border border-gray-200 z-[60]">
                         ${g.userName} ${(g.distance/1000).toFixed(1)}km
                     </div>
@@ -193,15 +198,14 @@ const GameMap: React.FC<GameMapProps> = ({
 
             addMarker(g.location.lat, g.location.lng, icon);
 
-            // Draw line ONLY for current user (as per typical design to reduce clutter, or screenshot style)
-            // Or if user requested "similar to pic", pic shows lines. Let's draw dashed lines for everyone but subtle, and strong for me.
+            // Draw line ONLY for current user
             const line = L.polyline([
                 [g.location.lat, g.location.lng],
                 [actualLocation.lat, actualLocation.lng]
             ], { 
                 color: isMe ? '#f97316' : '#9ca3af', // Orange for me, Gray for others
                 weight: isMe ? 3 : 1, 
-                opacity: isMe ? 1 : 0.5,
+                opacity: isMe ? 1 : 0.3,
                 dashArray: '4, 6' 
             }).addTo(map);
             linesRef.current.push(line);
@@ -265,10 +269,10 @@ const GameMap: React.FC<GameMapProps> = ({
 
         {/* Custom Zoom Controls */}
         <div className="absolute top-20 left-4 z-[900] flex flex-col gap-3">
-             <button onClick={(e) => { e.stopPropagation(); handleZoom(1); }} className="w-10 h-10 bg-white rounded-full text-gray-800 shadow-lg flex items-center justify-center hover:bg-gray-100">
+             <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleZoom(1); }} className="w-10 h-10 bg-white rounded-full text-gray-800 shadow-lg flex items-center justify-center hover:bg-gray-100">
                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
              </button>
-             <button onClick={(e) => { e.stopPropagation(); handleZoom(-1); }} className="w-10 h-10 bg-white rounded-full text-gray-800 shadow-lg flex items-center justify-center hover:bg-gray-100">
+             <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleZoom(-1); }} className="w-10 h-10 bg-white rounded-full text-gray-800 shadow-lg flex items-center justify-center hover:bg-gray-100">
                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
              </button>
         </div>
