@@ -34,7 +34,7 @@ export const getCurrentUser = async (): Promise<User> => {
     });
 
     if (error) {
-      console.error("Error creating user:", error);
+      console.error("Error creating user:", JSON.stringify(error));
       // Fallback for offline/error (though this app requires net)
       return newUser;
     }
@@ -53,7 +53,7 @@ export const saveCurrentUser = async (user: User): Promise<void> => {
     avatar_seed: user.avatarSeed
   });
   
-  if (error) console.error("Error updating user:", error);
+  if (error) console.error("Error updating user:", JSON.stringify(error));
 };
 
 // --- Game Management ---
@@ -71,7 +71,7 @@ export const saveGame = async (game: GameData): Promise<boolean> => {
   });
 
   if (error) {
-    console.error("Error saving game:", error);
+    console.error("Error saving game:", JSON.stringify(error));
     return false;
   }
   return true;
@@ -94,41 +94,40 @@ export const getGameById = async (id: string): Promise<GameData | null> => {
 };
 
 export const getNextUnplayedGame = async (userId: string): Promise<GameData | null> => {
-  // 1. Get IDs of games this user has already guessed
-  const { data: myGuesses } = await supabase
-    .from('guesses')
-    .select('game_id')
-    .eq('user_id', userId);
+  try {
+    // 1. Get IDs of games this user has already guessed
+    const { data: myGuesses } = await supabase
+      .from('guesses')
+      .select('game_id')
+      .eq('user_id', userId);
 
-  const playedGameIds = new Set(myGuesses?.map(g => g.game_id) || []);
+    const playedGameIds = new Set(myGuesses?.map(g => g.game_id) || []);
 
-  // 2. Fetch latest 50 games
-  // Note: optimized approach would be a "not in" query, but for simple MVP client-side filter is ok
-  const { data: allGames } = await supabase
-    .from('games')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(50);
+    // 2. Fetch latest 50 games ID AND TIMESTAMP ONLY (Lightweight)
+    // CRITICAL FIX: Do NOT select '*' here. Selecting image_data for 50 rows causes massive download.
+    const { data: allGamesMeta } = await supabase
+      .from('games')
+      .select('id, created_at')
+      .order('created_at', { ascending: false })
+      .limit(50);
 
-  if (!allGames) return null;
+    if (!allGamesMeta) return null;
 
-  // 3. Filter out played games
-  const unplayed = allGames.filter(g => !playedGameIds.has(g.id));
+    // 3. Filter out played games in memory (on the lightweight list)
+    const unplayedMeta = allGamesMeta.filter(g => !playedGameIds.has(g.id));
 
-  if (unplayed.length === 0) return null;
+    if (unplayedMeta.length === 0) return null;
 
-  // 4. Pick random
-  const randomGame = unplayed[Math.floor(Math.random() * unplayed.length)];
+    // 4. Pick random from the unplayed list
+    const randomGameMeta = unplayedMeta[Math.floor(Math.random() * unplayedMeta.length)];
 
-  return {
-    id: randomGame.id,
-    imageData: randomGame.image_data,
-    location: { lat: randomGame.location_lat, lng: randomGame.location_lng },
-    locationName: randomGame.location_name,
-    authorId: randomGame.author_id,
-    authorName: randomGame.author_name,
-    createdAt: randomGame.created_at
-  };
+    // 5. Fetch FULL data (including image) ONLY for the chosen game
+    return await getGameById(randomGameMeta.id);
+
+  } catch (e) {
+    console.error("Error finding game", e);
+    return null;
+  }
 };
 
 // --- Guess Management ---
@@ -146,7 +145,7 @@ export const saveGuess = async (guess: Guess): Promise<void> => {
     score: guess.score,
     timestamp: guess.timestamp
   });
-  if (error) console.error("Error saving guess:", error);
+  if (error) console.error("Error saving guess:", JSON.stringify(error));
 };
 
 export const getGuessesForGame = async (gameId: string): Promise<Guess[]> => {

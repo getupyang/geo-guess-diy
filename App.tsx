@@ -54,6 +54,36 @@ const calculateScore = (distance: number): number => {
   return Math.round(5000 * Math.exp(-distance / 2000000));
 };
 
+// Image Compression Helper
+const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 1280; // Reasonable size for mobile viewing
+            let width = img.width;
+            let height = img.height;
+
+            if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.drawImage(img, 0, 0, width, height);
+                // Compress to JPEG 0.7 quality
+                resolve(canvas.toDataURL('image/jpeg', 0.7)); 
+            } else {
+                resolve(img.src); // Fallback
+            }
+        };
+        img.onerror = () => resolve(URL.createObjectURL(file));
+    });
+};
+
 const App = () => {
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -203,13 +233,18 @@ const App = () => {
   const handleStartRandom = async () => {
       if (!currentUser) return;
       setLoading(true);
-      const game = await getNextUnplayedGame(currentUser.id);
-      setLoading(false);
-      
-      if (game) {
-          window.location.hash = `#play/${game.id}`;
-      } else {
-          alert("太棒了！你已经完成了所有现有挑战。没有新挑战了，欢迎上传你自己的拍摄！");
+      try {
+        const game = await getNextUnplayedGame(currentUser.id);
+        setLoading(false);
+        
+        if (game) {
+            window.location.hash = `#play/${game.id}`;
+        } else {
+            alert("太棒了！你已经完成了所有现有挑战。没有新挑战了，欢迎上传你自己的拍摄！");
+        }
+      } catch (e) {
+          setLoading(false);
+          alert("获取挑战失败，请检查网络");
       }
   };
 
@@ -264,15 +299,10 @@ const App = () => {
 
   // --- Components for Views ---
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        setCreateImage(evt.target?.result as string);
-        setCreateImageHistory([]);
-      };
-      reader.readAsDataURL(file);
+      // 1. Extract EXIF first from original file
       if (typeof EXIF !== 'undefined') {
           EXIF.getData(file as any, function(this: any) {
               const lat = EXIF.getTag(this, "GPSLatitude");
@@ -292,6 +322,15 @@ const App = () => {
                   }
               }
           });
+      }
+
+      // 2. Compress Image for State
+      try {
+        const compressedBase64 = await compressImage(file);
+        setCreateImage(compressedBase64);
+        setCreateImageHistory([]);
+      } catch (err) {
+          console.error("Compression failed", err);
       }
     }
   };
@@ -362,26 +401,9 @@ const App = () => {
                 {recentUnique.length === 0 ? (
                     <div className="text-gray-500 text-center py-8">暂无挑战记录，快去开始吧！</div>
                 ) : (
-                    recentUnique.map(guess => {
-                        // We need the game data for the image. 
-                        // Since we have async loading, getting game data for the list can be tricky.
-                        // Ideally recentPlayed should contain game info, or we fetch it.
-                        // For MVP, we'll try to fetch on render or load. 
-                        // BUT: React useEffect in loop is bad. 
-                        // Let's assume we can fetch basic details or the cache is hot.
-                        // A better way for Home list: fetch recent guesses AND their related games.
-                        // For now, let's load specific game data on click, and just show generic info or try to load.
-                        
-                        // We will rely on a small trick: StorageService's getGameById is async.
-                        // To display images here immediately, we need "RecentPlayed" to actually allow joining Game Data.
-                        // Let's use a temporary placeholder if data isn't loaded, OR, better:
-                        // Update storageService to return joined data for history.
-                        // Due to complexity limit, we might just show the Score and Date if Image is missing,
-                        // OR fetch image on the fly component-side.
-                        return (
-                            <AsyncGameCard key={guess.id} guess={guess} />
-                        );
-                    })
+                    recentUnique.map(guess => (
+                        <AsyncGameCard key={guess.id} guess={guess} />
+                    ))
                 )}
             </div>
         </div>
@@ -494,14 +516,18 @@ const App = () => {
               )}
 
               {/* Map Sheet */}
-              <div className={`absolute bottom-0 w-full bg-gray-900 rounded-t-3xl transition-all duration-300 ease-out z-30 shadow-2xl flex flex-col overflow-hidden ${isReview ? 'h-[65%]' : isMapOpen ? 'h-[80%]' : 'h-0'}`}>
-                  {/* Handle */}
+              <div 
+                  className={`absolute bottom-0 w-full bg-gray-900 rounded-t-3xl transition-all duration-300 ease-out z-30 shadow-2xl flex flex-col overflow-hidden ${isReview ? 'h-[65%]' : isMapOpen ? 'h-[80%]' : 'h-0'}`}
+                  // Stop propagation to prevent clicks inside the sheet from closing it (if user logic had that, though here we rely on explicit buttons)
+                  onClick={(e) => e.stopPropagation()} 
+              >
+                  {/* Handle - Click to Close */}
                   {!isReview && (
-                      <div className="h-8 w-full flex items-center justify-center cursor-pointer hover:bg-white/5" onClick={() => setIsMapOpen(false)}>
+                      <div className="h-8 w-full flex items-center justify-center cursor-pointer hover:bg-white/5 bg-gray-900" onClick={() => setIsMapOpen(false)}>
                           <div className="w-12 h-1.5 bg-gray-600 rounded-full" />
                       </div>
                   )}
-                  {/* Close Map Btn */}
+                  {/* Close Map Btn - Explicit */}
                   {mode === GameMode.PLAY && isMapOpen && (
                       <button onClick={() => setIsMapOpen(false)} className="absolute top-4 right-4 w-10 h-10 bg-black/60 rounded-full text-white z-[1100] flex items-center justify-center"><IconClose /></button>
                   )}
@@ -546,6 +572,10 @@ const AsyncGameCard = ({ guess, simple }: { guess: Guess, simple?: boolean }) =>
     const [game, setGame] = useState<GameData | null>(null);
 
     useEffect(() => {
+        // Here we do need to fetch game data to show the image.
+        // For list views, it's better to NOT fetch full image data if possible,
+        // but our API structure (for now) has image in the game row.
+        // Future opt: create thumbnails bucket.
         getGameById(guess.gameId).then(setGame);
     }, [guess.gameId]);
 
