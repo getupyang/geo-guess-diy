@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { LatLng, Guess } from '../types';
@@ -32,6 +31,7 @@ const GameMap: React.FC<GameMapProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const resizeObserver = useRef<ResizeObserver | null>(null);
   
   // References for cleanup
   const markersRef = useRef<L.Marker[]>([]);
@@ -72,9 +72,23 @@ const GameMap: React.FC<GameMapProps> = ({
       }
     });
 
+    // Add Resize Observer to handle mobile address bar resizing/keyboard showing
+    resizeObserver.current = new ResizeObserver(() => {
+        if (mapRef.current) {
+            mapRef.current.invalidateSize();
+        }
+    });
+    resizeObserver.current.observe(mapContainerRef.current);
+
+    return () => {
+        if (resizeObserver.current) {
+            resizeObserver.current.disconnect();
+        }
+    }
+
   }, []);
 
-  // Handle Resize
+  // Handle Resize Trigger from Parent
   useEffect(() => {
     if (isOpen && mapRef.current) {
       setTimeout(() => mapRef.current?.invalidateSize(), 300);
@@ -226,7 +240,7 @@ const GameMap: React.FC<GameMapProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full bg-gray-100">
+    <div className="relative w-full h-full bg-gray-100 touch-auto">
         {/* Search Bar (Only Create Mode) */}
         {enableSearch && isOpen && (
             <div className="absolute top-4 left-4 right-16 z-[1000]">
@@ -259,7 +273,7 @@ const GameMap: React.FC<GameMapProps> = ({
              </button>
         </div>
 
-        <div ref={mapContainerRef} className="w-full h-full" />
+        <div ref={mapContainerRef} className="w-full h-full" style={{ touchAction: 'none' }} />
     </div>
   );
 };

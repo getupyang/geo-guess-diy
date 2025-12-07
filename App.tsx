@@ -54,14 +54,15 @@ const calculateScore = (distance: number): number => {
   return Math.round(5000 * Math.exp(-distance / 2000000));
 };
 
-// Image Compression Helper
+// Image Compression Helper (Aggressive Optimization)
 const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve) => {
         const img = new Image();
         img.src = URL.createObjectURL(file);
         img.onload = () => {
             const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 1280; // Reasonable size for mobile viewing
+            // Reduced from 1280 to 1024 for significant size savings (approx 100KB target)
+            const MAX_WIDTH = 1024; 
             let width = img.width;
             let height = img.height;
 
@@ -74,8 +75,8 @@ const compressImage = (file: File): Promise<string> => {
             const ctx = canvas.getContext('2d');
             if (ctx) {
                 ctx.drawImage(img, 0, 0, width, height);
-                // Compress to JPEG 0.7 quality
-                resolve(canvas.toDataURL('image/jpeg', 0.7)); 
+                // Reduced quality to 0.6 for better compression/speed balance on mobile
+                resolve(canvas.toDataURL('image/jpeg', 0.6)); 
             } else {
                 resolve(img.src); // Fallback
             }
@@ -91,6 +92,7 @@ const App = () => {
   
   // Data State
   const [currentGame, setCurrentGame] = useState<GameData | null>(null);
+  const [nextGameCache, setNextGameCache] = useState<GameData | null>(null); // Preloaded game
   const [currentGuesses, setCurrentGuesses] = useState<Guess[]>([]); // For Review Mode
   
   // Create Mode State
@@ -121,6 +123,21 @@ const App = () => {
     init();
   }, []);
 
+  // Preload Next Game logic
+  useEffect(() => {
+      // If we are in REVIEW mode, user is likely to play next. Preload it.
+      // Only preload if we don't already have one cached.
+      if (mode === GameMode.REVIEW && currentUser && !nextGameCache) {
+          console.log("Preloading next game...");
+          getNextUnplayedGame(currentUser.id).then(game => {
+              if (game) {
+                  console.log("Next game preloaded:", game.id);
+                  setNextGameCache(game);
+              }
+          });
+      }
+  }, [mode, currentUser, nextGameCache]);
+
   const refreshHistory = async (userId: string) => {
       const history = await getUserGuesses(userId);
       setRecentPlayed(history);
@@ -144,8 +161,16 @@ const App = () => {
       const hash = window.location.hash;
       
       if (hash.startsWith('#play/')) {
-        setLoading(true);
         const id = hash.split('/')[1];
+        
+        // Use cached game if it matches to avoid fetch
+        if (nextGameCache && nextGameCache.id === id) {
+            startPlay(nextGameCache);
+            setNextGameCache(null); // Consumed
+            return;
+        }
+
+        setLoading(true);
         const game = await getGameById(id);
         
         if (game) {
@@ -165,6 +190,8 @@ const App = () => {
       } else if (hash.startsWith('#review/')) {
           setLoading(true);
           const id = hash.split('/')[1];
+          // Optimization: If we just finished playing this game, we might have it in state, 
+          // but fetching fresh guesses is important.
           const game = await getGameById(id);
           if (game) {
               await startReview(game);
@@ -232,6 +259,14 @@ const App = () => {
 
   const handleStartRandom = async () => {
       if (!currentUser) return;
+      
+      // 1. Check Cache First (Instant Start)
+      if (nextGameCache) {
+          window.location.hash = `#play/${nextGameCache.id}`;
+          return;
+      }
+
+      // 2. Fallback to Fetch
       setLoading(true);
       try {
         const game = await getNextUnplayedGame(currentUser.id);
@@ -518,8 +553,9 @@ const App = () => {
               {/* Map Sheet */}
               <div 
                   className={`absolute bottom-0 w-full bg-gray-900 rounded-t-3xl transition-all duration-300 ease-out z-30 shadow-2xl flex flex-col overflow-hidden ${isReview ? 'h-[65%]' : isMapOpen ? 'h-[80%]' : 'h-0'}`}
-                  // Stop propagation to prevent clicks inside the sheet from closing it (if user logic had that, though here we rely on explicit buttons)
+                  // IMPORTANT: Stop bubbling of clicks AND touches to prevent accidental closure of the map sheet
                   onClick={(e) => e.stopPropagation()} 
+                  onTouchStart={(e) => e.stopPropagation()}
               >
                   {/* Handle - Click to Close */}
                   {!isReview && (
