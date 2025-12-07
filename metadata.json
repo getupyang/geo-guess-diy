@@ -1,0 +1,7 @@
+{
+  "name": "GeoGuesser AI - 探索世界",
+  "description": "上传图片让 AI 识别位置，或创建地理谜题挑战好友。支持局部马赛克编辑与距离评分系统。",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
