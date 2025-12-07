@@ -3,7 +3,7 @@ import { GameMode, GameData, LatLng, GuessResult } from './types';
 import MosaicCanvas from './components/MosaicCanvas';
 import GameMap from './components/GameMap';
 import { saveGame, getGameById, generateId, getGames } from './services/storageService';
-import { analyzeImageLocation } from './services/geminiService';
+import { getAddressFromCoords } from './services/geocodingService';
 
 // Declare EXIF global from CDN
 declare var EXIF: any;
@@ -24,8 +24,8 @@ const IconPlus = () => (
 const IconCheck = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
 );
-const IconRobot = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><line x1="8" y1="16" x2="8" y2="16"></line><line x1="16" y1="16" x2="16" y2="16"></line></svg>
+const IconUndo = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
 );
 
 // Checkerboard Mosaic Icon
@@ -73,6 +73,7 @@ const App = () => {
   
   // Create State
   const [createImage, setCreateImage] = useState<string | null>(null);
+  const [createImageHistory, setCreateImageHistory] = useState<string[]>([]);
   const [createLocation, setCreateLocation] = useState<LatLng | null>(null);
   const [createLocationName, setCreateLocationName] = useState<string>("");
   const [isMosaicMode, setIsMosaicMode] = useState(false);
@@ -81,11 +82,6 @@ const App = () => {
   const [userGuess, setUserGuess] = useState<LatLng | null>(null);
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [result, setResult] = useState<GuessResult | null>(null);
-
-  // AI State
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [aiGuess, setAiGuess] = useState<LatLng | null>(null);
-  const [aiReasoning, setAiReasoning] = useState<string>("");
 
   // Router simulation
   useEffect(() => {
@@ -99,8 +95,6 @@ const App = () => {
           setMode(GameMode.PLAY);
           setResult(null);
           setUserGuess(null);
-          setAiGuess(null);
-          setAiReasoning("");
           setIsMapOpen(false);
         } else {
           alert('Game not found!');
@@ -110,9 +104,11 @@ const App = () => {
       } else if (hash === '#create') {
         setMode(GameMode.CREATE);
         setCreateImage(null);
+        setCreateImageHistory([]);
         setCreateLocation(null);
         setCreateLocationName("");
         setIsMapOpen(false);
+        setIsMosaicMode(false);
       } else {
         setMode(GameMode.HOME);
       }
@@ -130,7 +126,9 @@ const App = () => {
     if (file) {
       const reader = new FileReader();
       reader.onload = (evt) => {
-        setCreateImage(evt.target?.result as string);
+        const result = evt.target?.result as string;
+        setCreateImage(result);
+        setCreateImageHistory([]); // Reset history on new upload
       };
       reader.readAsDataURL(file);
 
@@ -154,7 +152,11 @@ const App = () => {
                           lng: toDecimal(lng, lngRef)
                       };
                       setCreateLocation(loc);
-                      setCreateLocationName("图片携带 GPS 信息");
+                      
+                      // Auto-fetch location name immediately
+                      getAddressFromCoords(loc.lat, loc.lng).then(name => {
+                          setCreateLocationName(name);
+                      });
                   } else {
                       setCreateLocation(null);
                   }
@@ -165,6 +167,27 @@ const App = () => {
           });
       }
     }
+  };
+
+  const handleCreateImageUpdate = (newImageBase64: string) => {
+      // Save current state to history before updating
+      if (createImage) {
+          setCreateImageHistory(prev => {
+              const newHistory = [...prev, createImage];
+              return newHistory.slice(-5); // Keep max 5 steps
+          });
+      }
+      setCreateImage(newImageBase64);
+  };
+
+  const handleUndo = () => {
+      if (createImageHistory.length === 0) return;
+      
+      const previousImage = createImageHistory[createImageHistory.length - 1];
+      const newHistory = createImageHistory.slice(0, -1);
+      
+      setCreateImage(previousImage);
+      setCreateImageHistory(newHistory);
   };
 
   const handleCreateGame = () => {
@@ -211,23 +234,6 @@ const App = () => {
     });
     setMode(GameMode.RESULT);
     setIsMapOpen(false); // Map becomes part of result view
-  };
-
-  const handleAiAnalyze = async () => {
-      if (!currentGame?.imageData || isAnalyzing) return;
-      setIsAnalyzing(true);
-      
-      const res = await analyzeImageLocation(currentGame.imageData);
-      setIsAnalyzing(false);
-      
-      if (res.location) {
-          setAiGuess(res.location);
-          setAiReasoning(res.reasoning);
-          setIsMapOpen(true);
-          // Optional: Auto set user guess to AI guess? No, let user decide.
-      } else {
-          alert("AI 无法识别位置: " + res.reasoning);
-      }
   };
 
   // --- Render Views ---
@@ -325,7 +331,7 @@ const App = () => {
             {isCreate ? (
                 <MosaicCanvas 
                     imageSrc={displayImage!} 
-                    onImageUpdate={setCreateImage}
+                    onImageUpdate={handleCreateImageUpdate}
                     isEditing={isMosaicMode} 
                 />
             ) : (
@@ -341,34 +347,38 @@ const App = () => {
                     </div>
                 </div>
             )}
-
-             {/* Play Mode: AI Reasoning Toast */}
-             {mode === GameMode.PLAY && aiReasoning && (
-                <div className="absolute top-20 left-4 right-4 z-10 animate-fade-in-down">
-                     <div className="bg-purple-900/90 backdrop-blur-md text-white p-3 rounded-xl border border-purple-500/30 shadow-2xl text-sm">
-                        <div className="flex items-center gap-2 mb-1 font-bold text-purple-300">
-                             <IconRobot /> AI 分析结果
-                        </div>
-                        {aiReasoning}
-                     </div>
-                </div>
-            )}
         </div>
 
         {/* Tools / Overlays for Create Mode */}
         {isCreate && (
-             <div className="absolute bottom-10 left-6 right-6 flex justify-between items-end z-20 pointer-events-none">
-                 <button 
-                    onClick={() => setIsMosaicMode(!isMosaicMode)}
-                    className={`pointer-events-auto w-14 h-14 rounded-full shadow-2xl flex items-center justify-center border-2 border-white/10 transition-all active:scale-90 ${isMosaicMode ? 'bg-orange-500 text-white ring-2 ring-orange-300' : 'bg-gray-800/90 text-white backdrop-blur-xl'}`}
-                    aria-label="Toggle Mosaic"
-                >
-                    <IconMosaic />
-                </button>
+             <div className="absolute bottom-10 left-6 right-6 flex items-end justify-between z-20 pointer-events-none gap-4">
+                 
+                 <div className="flex items-center gap-4 pointer-events-auto">
+                    {/* Mosaic Toggle */}
+                     <button 
+                        onClick={() => setIsMosaicMode(!isMosaicMode)}
+                        className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center border-2 border-white/10 transition-all active:scale-90 ${isMosaicMode ? 'bg-orange-500 text-white ring-2 ring-orange-300' : 'bg-gray-800/90 text-white backdrop-blur-xl'}`}
+                        aria-label="Toggle Mosaic"
+                    >
+                        <IconMosaic />
+                    </button>
+                    
+                    {/* Undo Button */}
+                    <button 
+                        onClick={handleUndo}
+                        disabled={createImageHistory.length === 0}
+                        className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center border-2 border-white/10 transition-all active:scale-90 
+                        ${createImageHistory.length > 0 ? 'bg-gray-800/90 text-white backdrop-blur-xl hover:bg-gray-700' : 'bg-gray-900/50 text-gray-500 cursor-not-allowed border-gray-800'}`}
+                        aria-label="Undo Mosaic"
+                    >
+                        <IconUndo />
+                    </button>
+                 </div>
                 
+                {/* Map Button */}
                 <button 
                     onClick={() => { setIsMapOpen(true); setIsMosaicMode(false); }}
-                    className="pointer-events-auto w-14 h-14 bg-blue-600 rounded-full shadow-2xl flex items-center justify-center text-white border-2 border-white/10 active:scale-90 transition-transform"
+                    className="pointer-events-auto w-14 h-14 bg-blue-600 rounded-full shadow-2xl flex items-center justify-center text-white border-2 border-white/10 active:scale-90 transition-transform ml-auto"
                     aria-label="Set Location"
                 >
                     <IconMap />
@@ -376,18 +386,9 @@ const App = () => {
              </div>
         )}
 
-        {/* Play Mode Buttons */}
+        {/* Play Mode Buttons - AI Removed */}
         {mode === GameMode.PLAY && !isMapOpen && (
             <div className="absolute bottom-8 right-6 z-20 flex flex-col gap-4">
-                 {/* AI Button */}
-                 <button 
-                    onClick={handleAiAnalyze}
-                    disabled={isAnalyzing}
-                    className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center text-white border-4 border-white/20 transition-all active:scale-95 ${isAnalyzing ? 'bg-gray-600 animate-pulse' : 'bg-purple-600 hover:bg-purple-700'}`}
-                >
-                    <IconRobot />
-                </button>
-
                 {/* Map Button */}
                 <button 
                     onClick={() => setIsMapOpen(true)}
@@ -430,13 +431,10 @@ const App = () => {
                    isOpen={isMapOpen} 
                    enableSearch={isCreate}
                    // Important: For PLAY mode, pass null (or undefined) for initialCenter so it defaults to the world view
-                   // Only pass specific center if creating or showing result. 
-                   // If AI guessed, show that briefly? Maybe not pan to it to avoid direct spoilers if user wants to search. 
-                   // Actually, if AI has a guess, showing it might be helpful. Let's show AI marker but not auto-center unless user asks.
-                   initialCenter={isCreate ? createLocation : (mode === GameMode.RESULT ? currentGame?.location : (aiGuess || null))}
+                   initialCenter={isCreate ? createLocation : (mode === GameMode.RESULT ? currentGame?.location : null)}
                    onLocationSelect={isCreate ? handleCreateLocationSelect : (latlng) => setUserGuess(latlng)}
                    selectedLocation={isCreate ? createLocation : (mode === GameMode.PLAY ? userGuess : result?.guessLocation)}
-                   actualLocation={mode === GameMode.RESULT ? currentGame?.location : (aiGuess || undefined)} // Use actualLocation prop to show AI guess as a green/secondary marker in play mode? No, GameMap logic treats actualLocation as the "Target" (Green). We shouldn't abuse it.
+                   actualLocation={mode === GameMode.RESULT ? currentGame?.location : undefined}
                 />
                 
                 {/* Action Buttons inside Map Sheet */}

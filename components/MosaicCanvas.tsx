@@ -20,7 +20,9 @@ const MosaicCanvas: React.FC<MosaicCanvasProps> = ({ imageSrc, onImageUpdate, is
       if (canvas) {
         // Calculate aspect ratio to fit screen width but maintain ratio
         const maxWidth = Math.min(window.innerWidth, 800);
+        // Ensure we don't upscale small images too much, but always fit container
         const scale = maxWidth / img.width;
+        
         canvas.width = img.width * scale;
         canvas.height = img.height * scale;
         
@@ -32,67 +34,94 @@ const MosaicCanvas: React.FC<MosaicCanvasProps> = ({ imageSrc, onImageUpdate, is
     };
   }, [imageSrc]);
 
-  const applyMosaic = (x: number, y: number, size: number = 20) => {
+  const applyMosaic = (x: number, y: number, brushSize: number = 20) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Simple pixelation effect
-    const sampleSize = 10;
-    const startX = Math.floor((x - size / 2) / sampleSize) * sampleSize;
-    const startY = Math.floor((y - size / 2) / sampleSize) * sampleSize;
+    // Pixelation Effect Logic
+    // We process a square area defined by brushSize
+    const startX = x - brushSize / 2;
+    const startY = y - brushSize / 2;
     
-    // We are just drawing a blurred/filled rect for simplicity in this demo
-    // Real mosaic involves reading pixel data, averaging, and redrawing
-    ctx.fillStyle = 'rgba(0,0,0,0.8)'; // Censorship style
-    // Alternatively, just blur
-    ctx.filter = 'blur(4px)';
-    ctx.drawImage(
-      canvas,
-      x - size, y - size, size * 2, size * 2,
-      x - size, y - size, size * 2, size * 2
-    );
-    ctx.filter = 'none';
+    // Get the pixel data for the area under the brush
+    // Note: We might go out of bounds, but getImageData handles clipping reasonably well in modern browsers,
+    // or returns zeros.
+    try {
+        const imgData = ctx.getImageData(startX, startY, brushSize, brushSize);
+        const data = imgData.data;
+        
+        // Calculate average color
+        let r = 0, g = 0, b = 0;
+        let count = 0;
+        
+        for (let i = 0; i < data.length; i += 4) {
+            // Ignore transparent pixels if any (though usually base image is opaque)
+            if (data[i + 3] > 0) {
+                r += data[i];
+                g += data[i + 1];
+                b += data[i + 2];
+                count++;
+            }
+        }
+        
+        if (count > 0) {
+            r = Math.floor(r / count);
+            g = Math.floor(g / count);
+            b = Math.floor(b / count);
+            
+            // Draw a single solid block representing the average color (Mosaic tile)
+            ctx.fillStyle = `rgb(${r},${g},${b})`;
+            ctx.fillRect(startX, startY, brushSize, brushSize);
+        }
+    } catch (e) {
+        // Handle cross-origin issues or bounds errors
+        console.warn("Mosaic error", e);
+    }
   };
 
-  const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isEditing || !isDrawing) return;
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isEditing) return;
+    setIsDrawing(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    
+    // Draw initial dot
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.touches[0].clientX - rect.left;
-    const y = e.touches[0].clientY - rect.top;
-    applyMosaic(x, y, 30);
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    applyMosaic(x, y, 25);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isEditing || !isDrawing) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    applyMosaic(x, y, 30);
+    applyMosaic(x, y, 25);
   };
 
-  const saveCanvas = useCallback(() => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+    e.currentTarget.releasePointerCapture(e.pointerId);
     if (canvasRef.current) {
-      onImageUpdate(canvasRef.current.toDataURL('image/jpeg', 0.8));
+        onImageUpdate(canvasRef.current.toDataURL('image/jpeg', 0.85));
     }
-  }, [onImageUpdate]);
+  };
 
   return (
     <div className="relative w-full flex justify-center bg-black overflow-hidden touch-none">
       <canvas
         ref={canvasRef}
         className={`${isEditing ? 'cursor-crosshair' : 'cursor-default'} max-w-full`}
-        onTouchStart={() => setIsDrawing(true)}
-        onTouchEnd={() => { setIsDrawing(false); saveCanvas(); }}
-        onTouchMove={handleTouchMove}
-        onMouseDown={() => setIsDrawing(true)}
-        onMouseUp={() => { setIsDrawing(false); saveCanvas(); }}
-        onMouseMove={handleMouseMove}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
       />
       {isEditing && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 text-white px-3 py-1 rounded-full text-xs pointer-events-none">
-          涂抹以打码
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur text-white px-4 py-1.5 rounded-full text-xs font-medium pointer-events-none shadow-lg border border-white/10">
+          涂抹画面打码
         </div>
       )}
     </div>
