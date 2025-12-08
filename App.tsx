@@ -8,7 +8,7 @@ import {
     saveGame, getGameById, generateId, 
     getCurrentUser, saveCurrentUser, getNextUnplayedGame, 
     saveGuess, getGuessesForGame, getUserGuesses, hasUserPlayed,
-    rateGame
+    rateGame, getUserCreatedGames
 } from './services/storageService';
 import { getAddressFromCoords } from './services/geocodingService';
 
@@ -22,6 +22,7 @@ const IconPlus = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height
 const IconCheck = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>;
 const IconUndo = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>;
 const IconPlay = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>;
+const IconGrid = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>;
 
 // New Heart Icon (Solid and Outline)
 const IconHeart = ({ filled }: { filled: boolean }) => (
@@ -122,6 +123,7 @@ const App = () => {
 
   // History / Recent
   const [recentPlayed, setRecentPlayed] = useState<Guess[]>([]);
+  const [myCreatedGames, setMyCreatedGames] = useState<GameData[]>([]);
   
   // Ref to track if we've already initialized the review map for a specific game
   const lastReviewGameId = useRef<string | null>(null);
@@ -141,6 +143,14 @@ const App = () => {
   const refreshHistory = async (userId: string) => {
       const history = await getUserGuesses(userId);
       setRecentPlayed(history);
+  };
+
+  const loadCreatedGames = async () => {
+      if (!currentUser) return;
+      setLoading(true);
+      const games = await getUserCreatedGames(currentUser.id);
+      setMyCreatedGames(games);
+      setLoading(false);
   };
 
   const handleEditName = async () => {
@@ -198,6 +208,10 @@ const App = () => {
 
       } else if (hash === '#history') {
         setMode(GameMode.HISTORY);
+
+      } else if (hash === '#created') {
+        setMode(GameMode.CREATED_LIST);
+        loadCreatedGames();
 
       } else {
         setMode(GameMode.HOME);
@@ -397,7 +411,7 @@ const App = () => {
   };
 
   // --- Loading View ---
-  if (loading && !currentGame && mode !== GameMode.CREATE) {
+  if (loading && !currentGame && mode !== GameMode.CREATE && mode !== GameMode.CREATED_LIST) {
       return (
           <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">
               <div className="text-center">
@@ -434,7 +448,7 @@ const App = () => {
         </div>
 
         {/* Action Buttons */}
-        <div className="space-y-4 mb-10">
+        <div className="space-y-4 mb-8">
             <button 
                 onClick={handleStartRandom}
                 disabled={loading}
@@ -449,12 +463,19 @@ const App = () => {
             >
                 <IconPlus /> 创建新挑战
             </button>
+            
+             <button 
+                onClick={() => window.location.hash = '#created'}
+                className="w-full py-3 bg-gray-900 border border-gray-800 rounded-xl shadow text-gray-400 text-sm font-medium hover:text-white flex items-center justify-center gap-2"
+            >
+                <IconGrid /> 我发布的挑战
+            </button>
         </div>
 
         {/* Recent Section */}
         <div className="flex-1">
             <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-gray-200">最近的挑战</h2>
+                <h2 className="text-lg font-bold text-gray-200">最近游玩</h2>
                 <button onClick={() => window.location.hash = '#history'} className="text-sm text-blue-400 font-medium">查看更多</button>
             </div>
             
@@ -477,13 +498,61 @@ const App = () => {
         <div className="min-h-screen bg-gray-900 text-white p-4">
              <div className="flex items-center gap-4 mb-6">
                  <button onClick={() => window.location.hash = ''} className="p-2 bg-gray-800 rounded-full"><IconClose /></button>
-                 <h1 className="text-xl font-bold">挑战记录</h1>
+                 <h1 className="text-xl font-bold">游玩记录</h1>
              </div>
-             <div className="grid grid-cols-2 gap-4">
+             <div className="grid grid-cols-2 gap-4 pb-8">
                  {recentPlayed.map(guess => (
                      <AsyncGameCard key={guess.id} guess={guess} simple />
                  ))}
              </div>
+        </div>
+      );
+  }
+
+  if (mode === GameMode.CREATED_LIST) {
+      return (
+        <div className="min-h-screen bg-gray-900 text-white p-4">
+             <div className="flex items-center gap-4 mb-6">
+                 <button onClick={() => window.location.hash = ''} className="p-2 bg-gray-800 rounded-full"><IconClose /></button>
+                 <h1 className="text-xl font-bold">我发布的</h1>
+             </div>
+             
+             {loading ? (
+                  <div className="text-center py-10 text-gray-500">加载中...</div>
+             ) : (
+                 <div className="grid grid-cols-2 gap-4 pb-8">
+                     {myCreatedGames.length === 0 ? (
+                         <div className="col-span-2 text-center py-10 text-gray-500">
+                             你还没有发布过挑战<br/>
+                             <span className="text-sm mt-2 block text-gray-600">点击首页“创建新挑战”来贡献题目</span>
+                         </div>
+                     ) : (
+                         myCreatedGames.map(game => (
+                             <div 
+                                key={game.id}
+                                onClick={() => window.location.hash = `#review/${game.id}`}
+                                className="bg-gray-800 rounded-xl overflow-hidden shadow-md active:scale-95 transition-transform cursor-pointer"
+                             >
+                                <div className="w-full relative h-32">
+                                    <img src={game.imageData} className="w-full h-full object-cover" alt="thumb" />
+                                    <div className="absolute top-2 right-2 bg-black/60 backdrop-blur px-2 py-1 rounded-full text-xs font-bold text-red-400 flex items-center gap-1">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                                        {game.likes || 0}
+                                    </div>
+                                </div>
+                                <div className="p-3">
+                                    <div className="truncate text-sm text-gray-300 font-medium">
+                                        {game.locationName || "未知位置"}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        {new Date(game.createdAt).toLocaleDateString()}
+                                    </div>
+                                </div>
+                             </div>
+                         ))
+                     )}
+                 </div>
+             )}
         </div>
       );
   }

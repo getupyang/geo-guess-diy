@@ -131,6 +131,30 @@ export const getNextUnplayedGame = async (userId: string): Promise<GameData | nu
   }
 };
 
+export const getUserCreatedGames = async (userId: string): Promise<GameData[]> => {
+  // Fetch games created by this user
+  // Warning: Fetching image_data for all might be heavy if user has many games.
+  // For MVP with aggressive compression (<150KB), 20 items = 3MB, acceptable.
+  const { data, error } = await supabase
+    .from('games')
+    .select('*')
+    .eq('author_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error || !data) return [];
+
+  return data.map(row => ({
+    id: row.id,
+    imageData: row.image_data,
+    location: { lat: row.location_lat, lng: row.location_lng },
+    locationName: row.location_name,
+    authorId: row.author_id,
+    authorName: row.author_name,
+    createdAt: row.created_at,
+    likes: row.likes || 0
+  }));
+};
+
 export const rateGame = async (gameId: string, action: 'like' | 'unlike'): Promise<boolean> => {
   try {
     // Simple Read-Modify-Write for MVP

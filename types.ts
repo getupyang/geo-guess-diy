@@ -36,6 +36,7 @@ export interface Guess {
 export enum GameMode {
   HOME = 'HOME',
   HISTORY = 'HISTORY', // New mode for full history list
+  CREATED_LIST = 'CREATED_LIST', // List of games created by user
   CREATE = 'CREATE',
   PLAY = 'PLAY',
   REVIEW = 'REVIEW' // Combined Result/Review mode
