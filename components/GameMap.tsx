@@ -96,13 +96,31 @@ const GameMap: React.FC<GameMapProps> = ({
 
   }, []);
 
-  // Handle Resize Trigger from Parent
+  // Handle Resize Trigger from Parent & Auto Fit Bounds
+  // CRITICAL FIX: We must wait for the transition animation (300ms) to finish before fitting bounds,
+  // otherwise Leaflet calculates bounds based on a 0-height container.
   useEffect(() => {
     if (isOpen && mapRef.current) {
-      setTimeout(() => mapRef.current?.invalidateSize(), 300);
+      // Immediate invalidate just in case
       mapRef.current.invalidateSize();
+
+      const timer = setTimeout(() => {
+        if (!mapRef.current) return;
+        
+        mapRef.current.invalidateSize();
+
+        // Only auto-fit bounds in REVIEW mode (when actualLocation exists)
+        // In PLAY mode, we usually want to keep the user's manual view or default center
+        if (actualLocation && guesses.length > 0) {
+            const bounds = L.latLngBounds([actualLocation.lat, actualLocation.lng], [actualLocation.lat, actualLocation.lng]);
+            guesses.forEach(g => bounds.extend([g.location.lat, g.location.lng]));
+            mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+        }
+      }, 350); // 350ms > 300ms transition duration
+      
+      return () => clearTimeout(timer);
     }
-  }, [isOpen]);
+  }, [isOpen, actualLocation, guesses]);
 
   // Handle Initial Center Update (rarely needed but good for re-centering)
   useEffect(() => {
@@ -214,12 +232,8 @@ const GameMap: React.FC<GameMapProps> = ({
             linesRef.current.push(line);
         });
         
-        // Fit bounds to include all guesses and actual location
-        if (displayGuesses.length > 0) {
-            const bounds = L.latLngBounds([actualLocation.lat, actualLocation.lng], [actualLocation.lat, actualLocation.lng]);
-            displayGuesses.forEach(g => bounds.extend([g.location.lat, g.location.lng]));
-            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
-        }
+        // Note: We removed the immediate fitBounds here because it often runs before the map is fully visible/sized.
+        // We now rely on the useEffect([isOpen...]) with delay to handle the fitting.
     }
 
   }, [selectedLocation, actualLocation, guesses, currentUserId, interactive]);
