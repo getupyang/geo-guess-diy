@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { LatLng, Guess } from '../types';
@@ -60,10 +61,11 @@ const GameMap: React.FC<GameMapProps> = ({
       scrollWheelZoom: true
     }).setView([safeCenter.lat, safeCenter.lng], initialCenter ? 13 : 3);
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-      subdomains: 'abcd',
-      attribution: '&copy; OpenStreetMap &copy; CARTO'
+    // Switch to GaoDe Map (AutoNavi) for Chinese labels globally
+    L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+      maxZoom: 18,
+      subdomains: '1234',
+      attribution: '高德地图'
     }).addTo(mapRef.current);
 
     mapRef.current.on('click', async (e) => {
@@ -176,6 +178,7 @@ const GameMap: React.FC<GameMapProps> = ({
             // Generate Avatar Icon
             const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${g.userAvatarSeed || g.userId}&backgroundColor=b6e3f4`;
             
+            // Logic change: If it's me, show label ALWAYS. If other, show on hover (desktop).
             const html = `
                 <div class="relative group">
                     <!-- Avatar Circle -->
@@ -183,7 +186,7 @@ const GameMap: React.FC<GameMapProps> = ({
                         <img src="${avatarUrl}" class="w-full h-full object-cover" />
                     </div>
                     <!-- Name Bubble -->
-                    <div class="${isMe ? 'hidden group-hover:block' : 'block'} absolute -top-8 left-1/2 -translate-x-1/2 bg-white/90 text-gray-900 text-[10px] px-2 py-0.5 rounded shadow-sm whitespace-nowrap font-bold border border-gray-200 z-[60]">
+                    <div class="absolute -top-9 left-1/2 -translate-x-1/2 ${isMe ? 'block bg-orange-500 text-white z-[70] border-orange-600' : 'hidden group-hover:block bg-white/90 text-gray-900 z-[60] border-gray-200'} text-[10px] px-2 py-0.5 rounded shadow-sm whitespace-nowrap font-bold border">
                         ${g.userName} ${(g.distance/1000).toFixed(1)}km
                     </div>
                 </div>

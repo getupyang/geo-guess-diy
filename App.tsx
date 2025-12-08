@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { GameMode, GameData, LatLng, Guess, User } from './types';
 import MosaicCanvas from './components/MosaicCanvas';
 import GameMap from './components/GameMap';
@@ -20,7 +21,6 @@ const IconPlus = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height
 const IconCheck = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>;
 const IconUndo = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>;
 const IconPlay = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>;
-const IconHistory = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>;
 
 const IconMosaic = () => (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -112,6 +112,10 @@ const App = () => {
   // History / Recent
   const [recentPlayed, setRecentPlayed] = useState<Guess[]>([]);
   
+  // Ref to track if we've already initialized the review map for a specific game
+  // This prevents the map from re-opening if data refreshes
+  const lastReviewGameId = useRef<string | null>(null);
+
   // Init User
   useEffect(() => {
     const init = async () => {
@@ -129,10 +133,8 @@ const App = () => {
       // If we are in REVIEW mode, user is likely to play next. Preload it.
       // Only preload if we don't already have one cached.
       if (mode === GameMode.REVIEW && currentUser && !nextGameCache) {
-          console.log("Preloading next game...");
           getNextUnplayedGame(currentUser.id).then(game => {
               if (game) {
-                  console.log("Next game preloaded:", game.id);
                   setNextGameCache(game);
               }
           });
@@ -163,6 +165,7 @@ const App = () => {
       
       if (hash.startsWith('#play/')) {
         const id = hash.split('/')[1];
+        lastReviewGameId.current = null; // Reset review tracker
         
         // Use cached game if it matches to avoid fetch
         if (nextGameCache && nextGameCache.id === id) {
@@ -191,8 +194,6 @@ const App = () => {
       } else if (hash.startsWith('#review/')) {
           setLoading(true);
           const id = hash.split('/')[1];
-          // Optimization: If we just finished playing this game, we might have it in state, 
-          // but fetching fresh guesses is important.
           const game = await getGameById(id);
           if (game) {
               await startReview(game);
@@ -210,13 +211,11 @@ const App = () => {
 
       } else {
         setMode(GameMode.HOME);
-        // Refresh history when returning home
         refreshHistory(currentUser.id);
       }
     };
 
     window.addEventListener('hashchange', handleHashChange);
-    // If we're not loading and have a user, handle the initial hash
     if (!loading && currentUser) {
         handleHashChange(); 
     }
@@ -253,8 +252,13 @@ const App = () => {
           const mine = guesses.find(g => g.userId === currentUser.id);
           if (mine) setMyResult(mine);
       }
-      // In review mode, we default to open, but user can close it
-      setIsMapOpen(true); 
+      
+      // FIX: Only open map automatically if we haven't opened it for this game yet.
+      // This prevents the map from popping up again if the user closed it but state refreshed.
+      if (lastReviewGameId.current !== game.id) {
+          setIsMapOpen(true);
+          lastReviewGameId.current = game.id;
+      }
   };
 
   // --- Actions ---
@@ -503,9 +507,19 @@ const App = () => {
                       >{isPublishing ? '发布中...' : '发布'}</button>
                   )}
                   {isReview && myResult && (
-                      <div className="flex flex-col items-end text-white">
-                          <span className="text-xs opacity-70">得分</span>
-                          <span className="font-bold text-xl text-orange-400">{myResult.score}</span>
+                      <div className="flex gap-4">
+                          <div className="flex flex-col items-end text-white">
+                              <span className="text-xs opacity-70">距离</span>
+                              <span className="font-bold text-lg text-white">
+                                {myResult.distance < 1000 
+                                    ? `${Math.round(myResult.distance)}m` 
+                                    : `${(myResult.distance / 1000).toFixed(1)}km`}
+                              </span>
+                          </div>
+                          <div className="flex flex-col items-end text-white">
+                              <span className="text-xs opacity-70">得分</span>
+                              <span className="font-bold text-xl text-orange-400">{myResult.score}</span>
+                          </div>
                       </div>
                   )}
               </div>
@@ -575,13 +589,12 @@ const App = () => {
                   onClick={(e) => e.stopPropagation()} 
                   onTouchStart={(e) => e.stopPropagation()}
               >
-                  {/* Handle - Click to Close */}
-                  <div className="h-8 w-full flex items-center justify-center cursor-pointer hover:bg-white/5 bg-gray-900 shrink-0" onClick={() => setIsMapOpen(false)}>
-                      <div className="w-12 h-1.5 bg-gray-600 rounded-full" />
+                  {/* Handle Area - No visible bar, just clickable area */}
+                  <div className="h-6 w-full cursor-pointer hover:bg-white/5 bg-gray-900 shrink-0" onClick={() => setIsMapOpen(false)}>
                   </div>
                   
                   {/* Close Map Btn - Explicit */}
-                  <button onClick={() => setIsMapOpen(false)} className="absolute top-4 right-4 w-8 h-8 bg-black/60 rounded-full text-white z-[1100] flex items-center justify-center"><IconClose /></button>
+                  <button onClick={() => setIsMapOpen(false)} className="absolute top-3 right-4 w-8 h-8 bg-black/60 rounded-full text-white z-[1100] flex items-center justify-center"><IconClose /></button>
 
                   <div className="flex-1 relative bg-gray-200">
                       <GameMap 
