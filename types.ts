@@ -18,6 +18,8 @@ export interface GameData {
   authorId: string;
   authorName: string;
   createdAt: number;
+  likes?: number;
+  dislikes?: number;
 }
 
 export interface Guess {

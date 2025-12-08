@@ -68,6 +68,9 @@ export const saveGame = async (game: GameData): Promise<boolean> => {
     author_id: game.authorId,
     author_name: game.authorName,
     created_at: game.createdAt
+    // Note: 'likes' and 'dislikes' are removed from here. 
+    // If the columns exist in DB, they should have DEFAULT 0. 
+    // If they don't exist, excluding them prevents the "Column not found" error.
   });
 
   if (error) {
@@ -89,7 +92,9 @@ export const getGameById = async (id: string): Promise<GameData | null> => {
     locationName: data.location_name,
     authorId: data.author_id,
     authorName: data.author_name,
-    createdAt: data.created_at
+    createdAt: data.created_at,
+    likes: data.likes || 0,
+    dislikes: data.dislikes || 0
   };
 };
 
@@ -127,6 +132,33 @@ export const getNextUnplayedGame = async (userId: string): Promise<GameData | nu
   } catch (e) {
     console.error("Error finding game", e);
     return null;
+  }
+};
+
+export const rateGame = async (gameId: string, type: 'like' | 'dislike'): Promise<boolean> => {
+  try {
+    // Simple Read-Modify-Write for MVP (since we don't have stored procedures setup)
+    // In production, use .rpc('increment_field', ...)
+    const { data, error: readError } = await supabase
+      .from('games')
+      .select(type === 'like' ? 'likes' : 'dislikes')
+      .eq('id', gameId)
+      .single();
+
+    if (readError || !data) return false;
+
+    const currentCount = (type === 'like' ? (data as any).likes : (data as any).dislikes) || 0;
+    const updatePayload = type === 'like' ? { likes: currentCount + 1 } : { dislikes: currentCount + 1 };
+
+    const { error: updateError } = await supabase
+      .from('games')
+      .update(updatePayload)
+      .eq('id', gameId);
+
+    return !updateError;
+  } catch (e) {
+    console.error("Error rating game:", e);
+    return false;
   }
 };
 

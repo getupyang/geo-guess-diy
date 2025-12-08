@@ -47,6 +47,8 @@
 | location_name| text | 地点名称 |
 | author_id | text (FK) | 关联 Profiles.id |
 | created_at | bigint | 创建时间戳 |
+| likes | int | 点赞数 (Default 0) |
+| dislikes | int | 点踩数 (Default 0) |
 
 ### 3.3 Guesses 表 (猜测记录)
 | Column | Type | Description |

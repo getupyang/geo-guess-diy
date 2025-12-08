@@ -7,7 +7,8 @@ import ImageViewer from './components/ImageViewer';
 import { 
     saveGame, getGameById, generateId, 
     getCurrentUser, saveCurrentUser, getNextUnplayedGame, 
-    saveGuess, getGuessesForGame, getUserGuesses, hasUserPlayed 
+    saveGuess, getGuessesForGame, getUserGuesses, hasUserPlayed,
+    rateGame
 } from './services/storageService';
 import { getAddressFromCoords } from './services/geocodingService';
 
@@ -21,6 +22,8 @@ const IconPlus = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height
 const IconCheck = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>;
 const IconUndo = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>;
 const IconPlay = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>;
+const IconThumbUp = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>;
+const IconThumbDown = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path></svg>;
 
 const IconMosaic = () => (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -107,6 +110,9 @@ const App = () => {
   const [userGuess, setUserGuess] = useState<LatLng | null>(null);
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [myResult, setMyResult] = useState<Guess | null>(null);
+
+  // Review Mode Specific
+  const [hasVoted, setHasVoted] = useState(false);
 
   // History / Recent
   const [recentPlayed, setRecentPlayed] = useState<Guess[]>([]);
@@ -225,6 +231,7 @@ const App = () => {
   const startReview = async (game: GameData) => {
       setCurrentGame(game);
       setMode(GameMode.REVIEW);
+      setHasVoted(false); // Reset vote state for new game
       const guesses = await getGuessesForGame(game.id);
       setCurrentGuesses(guesses);
       
@@ -309,6 +316,18 @@ const App = () => {
     await saveGuess(newGuess);
     // Go to review mode
     window.location.hash = `#review/${currentGame.id}`;
+  };
+
+  const handleRate = async (type: 'like' | 'dislike') => {
+      if (!currentGame || hasVoted) return;
+      setHasVoted(true);
+      const success = await rateGame(currentGame.id, type);
+      if (success) {
+          // Optimistic update? Not strictly needed as we just show "Voted"
+          if (type === 'dislike') alert("感谢反馈，我们会优化题目质量。");
+      } else {
+          setHasVoted(false); // Revert on failure
+      }
   };
 
   // --- Components for Views ---
@@ -447,6 +466,15 @@ const App = () => {
       const isReview = mode === GameMode.REVIEW;
       const displayImage = isCreate ? createImage : currentGame?.imageData;
 
+      // Stats Calculation
+      let avgScore = 0;
+      let playerCount = 0;
+      if (isReview && currentGuesses.length > 2) {
+          playerCount = currentGuesses.length;
+          const total = currentGuesses.reduce((acc, curr) => acc + curr.score, 0);
+          avgScore = Math.round(total / playerCount);
+      }
+
       if (!displayImage && isCreate) {
           return (
              <div className="h-[100dvh] bg-gray-900 text-white flex flex-col">
@@ -497,6 +525,20 @@ const App = () => {
                   )}
               </div>
 
+              {/* Review Statistics Bar (Overlay below header) */}
+              {isReview && playerCount > 2 && (
+                  <div className="absolute top-16 left-0 w-full flex justify-center z-10 pointer-events-none">
+                      <div className="bg-black/40 backdrop-blur rounded-full px-4 py-1 flex items-center gap-4 text-xs text-white/90 border border-white/10">
+                          <span className="flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                              {playerCount}人挑战
+                          </span>
+                          <span className="w-px h-3 bg-white/20"></span>
+                          <span>平均分 {avgScore}</span>
+                      </div>
+                  </div>
+              )}
+
               {/* Content */}
               <div className="flex-1 flex items-center justify-center relative bg-black">
                   {isCreate ? (
@@ -533,13 +575,32 @@ const App = () => {
                   </div>
               )}
 
-              {/* Play / Review Map Toggle Button */}
-              {/* Only show if map is closed. If map is open, the sheet covers this area or is managed there. */}
+              {/* Play / Review Mode Floating Actions */}
               {!isMapOpen && !isCreate && (
-                  <div className="absolute bottom-8 right-6 z-20">
+                  <div className="absolute bottom-8 w-full px-6 flex items-end justify-between z-20 pointer-events-none">
+                       {/* Feedback Buttons (Review Mode Only) */}
+                       {isReview ? (
+                           <div className="pointer-events-auto flex gap-3">
+                               <button 
+                                 onClick={() => handleRate('like')}
+                                 disabled={hasVoted}
+                                 className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur shadow-lg border border-white/10 transition active:scale-95 ${hasVoted ? 'bg-white/10 text-gray-500' : 'bg-black/40 text-white hover:bg-black/60'}`}
+                               >
+                                   <IconThumbUp />
+                               </button>
+                               <button 
+                                 onClick={() => handleRate('dislike')}
+                                 disabled={hasVoted}
+                                 className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur shadow-lg border border-white/10 transition active:scale-95 ${hasVoted ? 'bg-white/10 text-gray-500' : 'bg-black/40 text-white hover:bg-black/60'}`}
+                               >
+                                   <IconThumbDown />
+                               </button>
+                           </div>
+                       ) : <div />}
+
                       <button 
                         onClick={(e) => { e.stopPropagation(); setIsMapOpen(true); }} 
-                        className="w-16 h-16 bg-orange-500 rounded-full text-white flex items-center justify-center shadow-xl border-4 border-white/20 hover:scale-110 transition"
+                        className="pointer-events-auto w-16 h-16 bg-orange-500 rounded-full text-white flex items-center justify-center shadow-xl border-4 border-white/20 hover:scale-110 transition"
                       >
                           <IconMap />
                       </button>
