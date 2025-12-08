@@ -68,9 +68,6 @@ export const saveGame = async (game: GameData): Promise<boolean> => {
     author_id: game.authorId,
     author_name: game.authorName,
     created_at: game.createdAt
-    // Note: 'likes' and 'dislikes' are removed from here. 
-    // If the columns exist in DB, they should have DEFAULT 0. 
-    // If they don't exist, excluding them prevents the "Column not found" error.
   });
 
   if (error) {
@@ -93,8 +90,7 @@ export const getGameById = async (id: string): Promise<GameData | null> => {
     authorId: data.author_id,
     authorName: data.author_name,
     createdAt: data.created_at,
-    likes: data.likes || 0,
-    dislikes: data.dislikes || 0
+    likes: data.likes || 0
   };
 };
 
@@ -135,24 +131,28 @@ export const getNextUnplayedGame = async (userId: string): Promise<GameData | nu
   }
 };
 
-export const rateGame = async (gameId: string, type: 'like' | 'dislike'): Promise<boolean> => {
+export const rateGame = async (gameId: string, action: 'like' | 'unlike'): Promise<boolean> => {
   try {
-    // Simple Read-Modify-Write for MVP (since we don't have stored procedures setup)
-    // In production, use .rpc('increment_field', ...)
+    // Simple Read-Modify-Write for MVP
     const { data, error: readError } = await supabase
       .from('games')
-      .select(type === 'like' ? 'likes' : 'dislikes')
+      .select('likes')
       .eq('id', gameId)
       .single();
 
     if (readError || !data) return false;
 
-    const currentCount = (type === 'like' ? (data as any).likes : (data as any).dislikes) || 0;
-    const updatePayload = type === 'like' ? { likes: currentCount + 1 } : { dislikes: currentCount + 1 };
+    let currentCount = (data as any).likes || 0;
+    
+    if (action === 'like') {
+        currentCount += 1;
+    } else {
+        currentCount = Math.max(0, currentCount - 1);
+    }
 
     const { error: updateError } = await supabase
       .from('games')
-      .update(updatePayload)
+      .update({ likes: currentCount })
       .eq('id', gameId);
 
     return !updateError;

@@ -22,8 +22,13 @@ const IconPlus = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height
 const IconCheck = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>;
 const IconUndo = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>;
 const IconPlay = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>;
-const IconThumbUp = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>;
-const IconThumbDown = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path></svg>;
+
+// New Heart Icon (Solid and Outline)
+const IconHeart = ({ filled }: { filled: boolean }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={filled ? "text-red-500" : "text-white"}>
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+    </svg>
+);
 
 const IconMosaic = () => (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -111,14 +116,14 @@ const App = () => {
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [myResult, setMyResult] = useState<Guess | null>(null);
 
-  // Review Mode Specific
-  const [hasVoted, setHasVoted] = useState(false);
+  // Review Mode Specific (Likes)
+  const [likeCount, setLikeCount] = useState(0);
+  const [isLiked, setIsLiked] = useState(false);
 
   // History / Recent
   const [recentPlayed, setRecentPlayed] = useState<Guess[]>([]);
   
   // Ref to track if we've already initialized the review map for a specific game
-  // This prevents the map from re-opening if data refreshes
   const lastReviewGameId = useRef<string | null>(null);
 
   // Init User
@@ -149,7 +154,6 @@ const App = () => {
   };
 
   // Router logic
-  // FIX: Removed 'loading' from dependencies to prevent double-firing and map auto-reopening loops.
   useEffect(() => {
     const handleHashChange = async () => {
       if (!currentUser) return;
@@ -208,7 +212,7 @@ const App = () => {
     }
     
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [currentUser]); // Dependencies reduced to just currentUser to ensure stability
+  }, [currentUser]); 
 
   const resetCreateState = () => {
     setCreateImage(null);
@@ -231,7 +235,14 @@ const App = () => {
   const startReview = async (game: GameData) => {
       setCurrentGame(game);
       setMode(GameMode.REVIEW);
-      setHasVoted(false); // Reset vote state for new game
+      
+      // Init Like State
+      setLikeCount(game.likes || 0);
+      if (currentUser) {
+          const likedInStorage = localStorage.getItem(`geoguesser_liked_${game.id}`);
+          setIsLiked(!!likedInStorage);
+      }
+
       const guesses = await getGuessesForGame(game.id);
       setCurrentGuesses(guesses);
       
@@ -274,8 +285,7 @@ const App = () => {
     
     setIsPublishing(true);
 
-    // FIX: Handle race condition where user clicks publish before geocoding finishes
-    // If name is still empty (network lag), fallback to coordinate string to ensure DB consistency
+    // If name is still empty (network lag), fallback to coordinate string
     let finalLocationName = createLocationName;
     if (!finalLocationName || finalLocationName.trim() === "") {
         finalLocationName = `${createLocation.lat.toFixed(3)}°N, ${createLocation.lng.toFixed(3)}°E`;
@@ -326,16 +336,25 @@ const App = () => {
     window.location.hash = `#review/${currentGame.id}`;
   };
 
-  const handleRate = async (type: 'like' | 'dislike') => {
-      if (!currentGame || hasVoted) return;
-      setHasVoted(true);
-      const success = await rateGame(currentGame.id, type);
-      if (success) {
-          // Optimistic update? Not strictly needed as we just show "Voted"
-          if (type === 'dislike') alert("感谢反馈，我们会优化题目质量。");
+  const handleToggleLike = async () => {
+      if (!currentGame || !currentUser) return;
+
+      const newIsLiked = !isLiked;
+      const newCount = newIsLiked ? likeCount + 1 : Math.max(0, likeCount - 1);
+
+      // Optimistic UI update
+      setIsLiked(newIsLiked);
+      setLikeCount(newCount);
+
+      // Local Persistence
+      if (newIsLiked) {
+          localStorage.setItem(`geoguesser_liked_${currentGame.id}`, 'true');
       } else {
-          setHasVoted(false); // Revert on failure
+          localStorage.removeItem(`geoguesser_liked_${currentGame.id}`);
       }
+
+      // Backend update
+      await rateGame(currentGame.id, newIsLiked ? 'like' : 'unlike');
   };
 
   // --- Components for Views ---
@@ -359,7 +378,6 @@ const App = () => {
                   if (latRef && lngRef) {
                       const loc = { lat: toDecimal(lat, latRef), lng: toDecimal(lng, lngRef) };
                       setCreateLocation(loc);
-                      // Clear name first to indicate loading state if we displayed it
                       setCreateLocationName("");
                       getAddressFromCoords(loc.lat, loc.lng).then(setCreateLocationName);
                   }
@@ -590,22 +608,17 @@ const App = () => {
               {/* Play / Review Mode Floating Actions */}
               {!isMapOpen && !isCreate && (
                   <div className="absolute bottom-8 w-full px-6 flex items-end justify-between z-20 pointer-events-none">
-                       {/* Feedback Buttons (Review Mode Only) */}
+                       {/* Like Button (Review Mode Only) */}
                        {isReview ? (
-                           <div className="pointer-events-auto flex gap-3">
+                           <div className="pointer-events-auto">
                                <button 
-                                 onClick={() => handleRate('like')}
-                                 disabled={hasVoted}
-                                 className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur shadow-lg border border-white/10 transition active:scale-95 ${hasVoted ? 'bg-white/10 text-gray-500' : 'bg-black/40 text-white hover:bg-black/60'}`}
+                                 onClick={handleToggleLike}
+                                 className="flex items-center gap-2 bg-black/40 hover:bg-black/60 backdrop-blur-md border border-white/10 rounded-full px-4 py-3 shadow-lg transition active:scale-95"
                                >
-                                   <IconThumbUp />
-                               </button>
-                               <button 
-                                 onClick={() => handleRate('dislike')}
-                                 disabled={hasVoted}
-                                 className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur shadow-lg border border-white/10 transition active:scale-95 ${hasVoted ? 'bg-white/10 text-gray-500' : 'bg-black/40 text-white hover:bg-black/60'}`}
-                               >
-                                   <IconThumbDown />
+                                   <IconHeart filled={isLiked} />
+                                   {likeCount > 0 && (
+                                       <span className="text-white font-bold">{likeCount}</span>
+                                   )}
                                </button>
                            </div>
                        ) : <div />}
@@ -635,8 +648,6 @@ const App = () => {
                   onClick={(e) => e.stopPropagation()} 
                   onTouchStart={(e) => e.stopPropagation()}
               >
-                  {/* FIX: Removed the visible handle bar div here as requested, just keeping structure simple */}
-                  
                   {/* Close Map Btn - Explicit */}
                   <button onClick={() => setIsMapOpen(false)} className="absolute top-3 right-4 w-8 h-8 bg-black/60 rounded-full text-white z-[1100] flex items-center justify-center"><IconClose /></button>
 
@@ -648,8 +659,6 @@ const App = () => {
                           initialCenter={isCreate ? createLocation : null} 
                           onLocationSelect={isCreate ? (l, n) => { 
                               setCreateLocation(l); 
-                              // If n (name) is provided by the map, set it. 
-                              // If not, clear it so we can show "Analyzing..." state or wait for async update
                               setCreateLocationName(n || ""); 
                            } : setUserGuess}
                           selectedLocation={isCreate ? createLocation : (mode === GameMode.PLAY ? userGuess : null)}
