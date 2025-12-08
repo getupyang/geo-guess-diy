@@ -273,11 +273,19 @@ const App = () => {
     if (!createImage || !createLocation || !currentUser) return;
     
     setIsPublishing(true);
+
+    // FIX: Handle race condition where user clicks publish before geocoding finishes
+    // If name is still empty (network lag), fallback to coordinate string to ensure DB consistency
+    let finalLocationName = createLocationName;
+    if (!finalLocationName || finalLocationName.trim() === "") {
+        finalLocationName = `${createLocation.lat.toFixed(3)}°N, ${createLocation.lng.toFixed(3)}°E`;
+    }
+
     const newGame: GameData = {
       id: generateId(),
       imageData: createImage,
       location: createLocation,
-      locationName: createLocationName,
+      locationName: finalLocationName,
       authorId: currentUser.id,
       authorName: currentUser.name,
       createdAt: Date.now()
@@ -351,6 +359,8 @@ const App = () => {
                   if (latRef && lngRef) {
                       const loc = { lat: toDecimal(lat, latRef), lng: toDecimal(lng, lngRef) };
                       setCreateLocation(loc);
+                      // Clear name first to indicate loading state if we displayed it
+                      setCreateLocationName("");
                       getAddressFromCoords(loc.lat, loc.lng).then(setCreateLocationName);
                   }
               }
@@ -558,7 +568,9 @@ const App = () => {
                   {/* Create Location Tag */}
                   {isCreate && createLocation && !isMapOpen && (
                       <div className="absolute bottom-28 bg-black/60 backdrop-blur px-4 py-2 rounded-lg text-white flex items-center gap-2 border border-white/10 pointer-events-none">
-                          <span className="text-sm truncate max-w-[200px]">{createLocationName}</span>
+                          <span className="text-sm truncate max-w-[200px]">
+                            {createLocationName || "正在解析地址..."}
+                          </span>
                           <IconCheck />
                       </div>
                   )}
@@ -634,7 +646,12 @@ const App = () => {
                           interactive={mode !== GameMode.REVIEW}
                           enableSearch={isCreate}
                           initialCenter={isCreate ? createLocation : null} 
-                          onLocationSelect={isCreate ? (l, n) => { setCreateLocation(l); if(n) setCreateLocationName(n); } : setUserGuess}
+                          onLocationSelect={isCreate ? (l, n) => { 
+                              setCreateLocation(l); 
+                              // If n (name) is provided by the map, set it. 
+                              // If not, clear it so we can show "Analyzing..." state or wait for async update
+                              setCreateLocationName(n || ""); 
+                           } : setUserGuess}
                           selectedLocation={isCreate ? createLocation : (mode === GameMode.PLAY ? userGuess : null)}
                           
                           // Review Props
