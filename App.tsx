@@ -157,6 +157,7 @@ const App = () => {
   };
 
   // Router logic
+  // FIX: Removed 'loading' from dependencies to prevent double-firing and map auto-reopening loops.
   useEffect(() => {
     const handleHashChange = async () => {
       if (!currentUser) return;
@@ -216,12 +217,13 @@ const App = () => {
     };
 
     window.addEventListener('hashchange', handleHashChange);
-    if (!loading && currentUser) {
+    // Execute immediately only if user is ready and we haven't loaded initial route yet
+    if (currentUser) {
         handleHashChange(); 
     }
     
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [currentUser, loading]);
+  }, [currentUser]); // Dependencies reduced to just currentUser to ensure stability
 
   const resetCreateState = () => {
     setCreateImage(null);
@@ -253,8 +255,7 @@ const App = () => {
           if (mine) setMyResult(mine);
       }
       
-      // FIX: Only open map automatically if we haven't opened it for this game yet.
-      // This prevents the map from popping up again if the user closed it but state refreshed.
+      // FIX: Check if we are already viewing this game ID to avoid re-opening map
       if (lastReviewGameId.current !== game.id) {
           setIsMapOpen(true);
           lastReviewGameId.current = game.id;
@@ -589,9 +590,7 @@ const App = () => {
                   onClick={(e) => e.stopPropagation()} 
                   onTouchStart={(e) => e.stopPropagation()}
               >
-                  {/* Handle Area - No visible bar, just clickable area */}
-                  <div className="h-6 w-full cursor-pointer hover:bg-white/5 bg-gray-900 shrink-0" onClick={() => setIsMapOpen(false)}>
-                  </div>
+                  {/* FIX: Removed the visible handle bar div here as requested, just keeping structure simple */}
                   
                   {/* Close Map Btn - Explicit */}
                   <button onClick={() => setIsMapOpen(false)} className="absolute top-3 right-4 w-8 h-8 bg-black/60 rounded-full text-white z-[1100] flex items-center justify-center"><IconClose /></button>
