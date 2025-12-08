@@ -93,7 +93,6 @@ const App = () => {
   
   // Data State
   const [currentGame, setCurrentGame] = useState<GameData | null>(null);
-  const [nextGameCache, setNextGameCache] = useState<GameData | null>(null); // Preloaded game
   const [currentGuesses, setCurrentGuesses] = useState<Guess[]>([]); // For Review Mode
   
   // Create Mode State
@@ -128,19 +127,6 @@ const App = () => {
     init();
   }, []);
 
-  // Preload Next Game logic
-  useEffect(() => {
-      // If we are in REVIEW mode, user is likely to play next. Preload it.
-      // Only preload if we don't already have one cached.
-      if (mode === GameMode.REVIEW && currentUser && !nextGameCache) {
-          getNextUnplayedGame(currentUser.id).then(game => {
-              if (game) {
-                  setNextGameCache(game);
-              }
-          });
-      }
-  }, [mode, currentUser, nextGameCache]);
-
   const refreshHistory = async (userId: string) => {
       const history = await getUserGuesses(userId);
       setRecentPlayed(history);
@@ -168,13 +154,6 @@ const App = () => {
         const id = hash.split('/')[1];
         lastReviewGameId.current = null; // Reset review tracker
         
-        // Use cached game if it matches to avoid fetch
-        if (nextGameCache && nextGameCache.id === id) {
-            startPlay(nextGameCache);
-            setNextGameCache(null); // Consumed
-            return;
-        }
-
         setLoading(true);
         const game = await getGameById(id);
         
@@ -267,13 +246,6 @@ const App = () => {
   const handleStartRandom = async () => {
       if (!currentUser) return;
       
-      // 1. Check Cache First (Instant Start)
-      if (nextGameCache) {
-          window.location.hash = `#play/${nextGameCache.id}`;
-          return;
-      }
-
-      // 2. Fallback to Fetch
       setLoading(true);
       try {
         const game = await getNextUnplayedGame(currentUser.id);
