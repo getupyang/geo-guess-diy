@@ -20,7 +20,7 @@ interface GameMapProps {
   enableSearch?: boolean;
 }
 
-type TileSource = 'osm' | 'gaode';
+type TileSource = 'globalZh' | 'gaode';
 
 const GameMap: React.FC<GameMapProps> = ({ 
   initialCenter, 
@@ -47,30 +47,25 @@ const GameMap: React.FC<GameMapProps> = ({
 
   const isInChina = (loc: LatLng) => loc.lng >= 73 && loc.lng <= 135 && loc.lat >= 18 && loc.lat <= 54;
 
-  // Tile Source (persisted)
+  // Tile Source (auto-detected)
   const defaultCenter = { lat: 35.8617, lng: 104.1954 };
   const safeCenter = initialCenter || defaultCenter;
-  const [tileSource, setTileSource] = useState<TileSource>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('tileSource');
-      if (saved === 'osm' || saved === 'gaode') return saved;
-    }
-    return isInChina(safeCenter) ? 'gaode' : 'osm';
-  });
+  const getTileSourceFor = (loc: LatLng): TileSource => (isInChina(loc) ? 'gaode' : 'globalZh');
+  const [tileSource, setTileSource] = useState<TileSource>(() => getTileSourceFor(safeCenter));
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('tileSource', tileSource);
-    }
-  }, [tileSource]);
+  const toMapCoords = useCallback(
+    (loc: LatLng, source: TileSource = tileSource): LatLng => {
+      return source === 'gaode' ? wgs84ToGcj02(loc.lat, loc.lng) : loc;
+    },
+    [tileSource]
+  );
 
-  const toMapCoords = useCallback((loc: LatLng): LatLng => {
-    return tileSource === 'gaode' ? wgs84ToGcj02(loc.lat, loc.lng) : loc;
-  }, [tileSource]);
-
-  const fromMapCoords = useCallback((loc: LatLng): LatLng => {
-    return tileSource === 'gaode' ? gcj02ToWgs84(loc.lat, loc.lng) : loc;
-  }, [tileSource]);
+  const fromMapCoords = useCallback(
+    (loc: LatLng, source: TileSource = tileSource): LatLng => {
+      return source === 'gaode' ? gcj02ToWgs84(loc.lat, loc.lng) : loc;
+    },
+    [tileSource]
+  );
 
   const applyTileSourceToMap = useCallback((map: L.Map, source: TileSource) => {
     if (tileLayerRef.current) {
@@ -85,9 +80,10 @@ const GameMap: React.FC<GameMapProps> = ({
         attribution: '高德地图'
       });
     } else {
-      tileLayerRef.current = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      tileLayerRef.current = L.tileLayer('https://mt{s}.google.cn/vt/lyrs=m&hl=zh-CN&x={x}&y={y}&z={z}', {
         maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
+        subdomains: '0123',
+        attribution: 'Google 地图'
       });
     }
 
@@ -131,12 +127,18 @@ const GameMap: React.FC<GameMapProps> = ({
   // Re-apply tile source & keep current view consistent
   useEffect(() => {
     if (!mapRef.current) return;
-    applyTileSourceToMap(mapRef.current, tileSource);
 
     const anchor = selectedLocation || actualLocation || safeCenter;
-    const anchorOnMap = toMapCoords(anchor);
+    const nextSource = getTileSourceFor(anchor);
+    if (nextSource !== tileSource) {
+      setTileSource(nextSource);
+    }
+
+    applyTileSourceToMap(mapRef.current, nextSource);
+
+    const anchorOnMap = toMapCoords(anchor, nextSource);
     mapRef.current.setView([anchorOnMap.lat, anchorOnMap.lng], mapRef.current.getZoom());
-  }, [actualLocation, applyTileSourceToMap, safeCenter, selectedLocation, tileSource, toMapCoords]);
+  }, [actualLocation, applyTileSourceToMap, getTileSourceFor, safeCenter, selectedLocation, tileSource, toMapCoords]);
 
   // Register click handler with correct coordinate system
   useEffect(() => {
@@ -357,27 +359,6 @@ const GameMap: React.FC<GameMapProps> = ({
                 </form>
             </div>
         )}
-
-        {/* Tile Source Toggle */}
-        <div className="absolute top-4 right-4 z-[1000] flex flex-col items-end gap-2">
-            <div className="bg-white text-gray-800 rounded-full shadow-lg overflow-hidden text-xs font-bold flex">
-                <button
-                  className={`px-3 py-2 ${tileSource === 'osm' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'}`}
-                  onClick={() => setTileSource('osm')}
-                >
-                  全球（无偏移）
-                </button>
-                <button
-                  className={`px-3 py-2 ${tileSource === 'gaode' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'}`}
-                  onClick={() => setTileSource('gaode')}
-                >
-                  中国（高德）
-                </button>
-            </div>
-            <div className="bg-black/70 text-white text-[10px] rounded px-3 py-1 shadow">
-                {tileSource === 'osm' ? '使用全球WGS84瓦片，海外加载快且无坐标偏移' : '使用高德GCJ-02瓦片，并自动转换坐标用于中国地区'}
-            </div>
-        </div>
 
         {/* Custom Zoom Controls */}
         <div className="absolute top-20 left-4 z-[900] flex flex-col gap-3">
