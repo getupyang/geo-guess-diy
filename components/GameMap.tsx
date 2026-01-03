@@ -72,8 +72,8 @@ const GameMap: React.FC<GameMapProps> = ({
 
   const applyTileSourceToMap = useCallback((map: L.Map, source: TileSource) => {
     const GLOBAL_TILE_URLS = [
-      'https://mt{s}.google.cn/vt/lyrs=m&gl=cn&hl=zh-CN&x={x}&y={y}&z={z}',
-      'https://mt{s}.google.com/vt/lyrs=m&hl=zh-CN&x={x}&y={y}&z={z}'
+      'https://mt{s}.google.cn/vt/lyrs=m&gl=cn&hl=zh-CN&lang=zh-CN&scale=2&x={x}&y={y}&z={z}',
+      'https://mt{s}.google.com/vt/lyrs=m&hl=zh-CN&lang=zh-CN&scale=2&x={x}&y={y}&z={z}'
     ];
 
     if (tileLayerRef.current) {
