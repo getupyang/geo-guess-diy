@@ -4,6 +4,47 @@ import L from 'leaflet';
 import { LatLng, Guess } from '../types';
 import { searchAddress, getAddressFromCoords } from '../services/geocodingService';
 
+// WGS84 to GCJ-02 coordinate conversion (for China map services)
+// Source: https://github.com/wandergis/coordtransform
+const PI = 3.1415926535897932384626;
+const a = 6378245.0; // 长半轴
+const ee = 0.00669342162296594323; // 偏心率平方
+
+function transformLat(lng: number, lat: number): number {
+  let ret = -100.0 + 2.0 * lng + 3.0 * lat + 0.2 * lat * lat + 0.1 * lng * lat + 0.2 * Math.sqrt(Math.abs(lng));
+  ret += (20.0 * Math.sin(6.0 * lng * PI) + 20.0 * Math.sin(2.0 * lng * PI)) * 2.0 / 3.0;
+  ret += (20.0 * Math.sin(lat * PI) + 40.0 * Math.sin(lat / 3.0 * PI)) * 2.0 / 3.0;
+  ret += (160.0 * Math.sin(lat / 12.0 * PI) + 320 * Math.sin(lat * PI / 30.0)) * 2.0 / 3.0;
+  return ret;
+}
+
+function transformLng(lng: number, lat: number): number {
+  let ret = 300.0 + lng + 2.0 * lat + 0.1 * lng * lng + 0.1 * lng * lat + 0.1 * Math.sqrt(Math.abs(lng));
+  ret += (20.0 * Math.sin(6.0 * lng * PI) + 20.0 * Math.sin(2.0 * lng * PI)) * 2.0 / 3.0;
+  ret += (20.0 * Math.sin(lng * PI) + 40.0 * Math.sin(lng / 3.0 * PI)) * 2.0 / 3.0;
+  ret += (150.0 * Math.sin(lng / 12.0 * PI) + 300.0 * Math.sin(lng / 30.0 * PI)) * 2.0 / 3.0;
+  return ret;
+}
+
+function outOfChina(lng: number, lat: number): boolean {
+  return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;
+}
+
+function wgs84ToGcj02(wgsLat: number, wgsLng: number): { lat: number; lng: number } {
+  if (outOfChina(wgsLng, wgsLat)) {
+    return { lat: wgsLat, lng: wgsLng };
+  }
+  let dLat = transformLat(wgsLng - 105.0, wgsLat - 35.0);
+  let dLng = transformLng(wgsLng - 105.0, wgsLat - 35.0);
+  const radLat = wgsLat / 180.0 * PI;
+  let magic = Math.sin(radLat);
+  magic = 1 - ee * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * PI);
+  dLng = (dLng * 180.0) / (a / sqrtMagic * Math.cos(radLat) * PI);
+  return { lat: wgsLat + dLat, lng: wgsLng + dLng };
+}
+
 interface GameMapProps {
   initialCenter?: LatLng | null; 
   onLocationSelect?: (latlng: LatLng, name?: string) => void;
@@ -42,8 +83,9 @@ const GameMap: React.FC<GameMapProps> = ({
   const [isSearching, setIsSearching] = useState(false);
 
   // Default center (China)
-  const defaultCenter = { lat: 35.8617, lng: 104.1954 }; 
-  const safeCenter = initialCenter || defaultCenter;
+  const defaultCenter = { lat: 35.8617, lng: 104.1954 };
+  const rawCenter = initialCenter || defaultCenter;
+  const safeCenter = wgs84ToGcj02(rawCenter.lat, rawCenter.lng);
 
   // Initialize Map
   useEffect(() => {
@@ -61,10 +103,11 @@ const GameMap: React.FC<GameMapProps> = ({
       scrollWheelZoom: true
     }).setView([safeCenter.lat, safeCenter.lng], initialCenter ? 13 : 3);
 
-    // OpenStreetMap for global coverage and WGS84 coordinate system (matches GPS)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap contributors'
+    // GaoDe Map (AutoNavi) for Chinese labels globally
+    L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+      maxZoom: 18,
+      subdomains: '1234',
+      attribution: '高德地图'
     }).addTo(mapRef.current);
 
     mapRef.current.on('click', async (e) => {
@@ -125,8 +168,12 @@ const GameMap: React.FC<GameMapProps> = ({
         // Only auto-fit bounds in REVIEW mode (when actualLocation exists)
         // In PLAY mode, we usually want to keep the user's manual view or default center
         if (actualLocation && guesses.length > 0) {
-            const bounds = L.latLngBounds([actualLocation.lat, actualLocation.lng], [actualLocation.lat, actualLocation.lng]);
-            guesses.forEach(g => bounds.extend([g.location.lat, g.location.lng]));
+            const actualConverted = wgs84ToGcj02(actualLocation.lat, actualLocation.lng);
+            const bounds = L.latLngBounds([actualConverted.lat, actualConverted.lng], [actualConverted.lat, actualConverted.lng]);
+            guesses.forEach(g => {
+                const guessConverted = wgs84ToGcj02(g.location.lat, g.location.lng);
+                bounds.extend([guessConverted.lat, guessConverted.lng]);
+            });
             mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
         }
       }, 350); // 350ms > 300ms transition duration
@@ -138,7 +185,8 @@ const GameMap: React.FC<GameMapProps> = ({
   // Handle Initial Center Update (rarely needed but good for re-centering)
   useEffect(() => {
       if (mapRef.current && initialCenter) {
-          mapRef.current.setView([initialCenter.lat, initialCenter.lng], 13);
+          const converted = wgs84ToGcj02(initialCenter.lat, initialCenter.lng);
+          mapRef.current.setView([converted.lat, converted.lng], 13);
       }
   }, [initialCenter?.lat, initialCenter?.lng]);
 
@@ -154,9 +202,10 @@ const GameMap: React.FC<GameMapProps> = ({
     markersRef.current = [];
     linesRef.current = [];
 
-    // Helper to add marker
+    // Helper to add marker with WGS84 to GCJ-02 conversion
     const addMarker = (lat: number, lng: number, icon: L.Icon | L.DivIcon) => {
-        const m = L.marker([lat, lng], { icon }).addTo(map);
+        const converted = wgs84ToGcj02(lat, lng);
+        const m = L.marker([converted.lat, converted.lng], { icon }).addTo(map);
         markersRef.current.push(m);
         return m;
     };
@@ -184,10 +233,11 @@ const GameMap: React.FC<GameMapProps> = ({
             iconAnchor: [12, 12]
         });
         const m = addMarker(selectedLocation.lat, selectedLocation.lng, tempIcon);
-        
+
         // Only pan in search mode (Creation), not play mode
         if (enableSearch) {
-            map.panTo([selectedLocation.lat, selectedLocation.lng]);
+            const convertedForPan = wgs84ToGcj02(selectedLocation.lat, selectedLocation.lng);
+            map.panTo([convertedForPan.lat, convertedForPan.lng]);
         }
     }
 
@@ -232,15 +282,17 @@ const GameMap: React.FC<GameMapProps> = ({
 
             addMarker(g.location.lat, g.location.lng, icon);
 
-            // Draw line ONLY for current user
+            // Draw line with coordinate conversion
+            const guessConverted = wgs84ToGcj02(g.location.lat, g.location.lng);
+            const actualConverted = wgs84ToGcj02(actualLocation.lat, actualLocation.lng);
             const line = L.polyline([
-                [g.location.lat, g.location.lng],
-                [actualLocation.lat, actualLocation.lng]
-            ], { 
+                [guessConverted.lat, guessConverted.lng],
+                [actualConverted.lat, actualConverted.lng]
+            ], {
                 color: isMe ? '#f97316' : '#9ca3af', // Orange for me, Gray for others
-                weight: isMe ? 3 : 1, 
+                weight: isMe ? 3 : 1,
                 opacity: isMe ? 1 : 0.3,
-                dashArray: '4, 6' 
+                dashArray: '4, 6'
             }).addTo(map);
             linesRef.current.push(line);
         });
@@ -263,8 +315,9 @@ const GameMap: React.FC<GameMapProps> = ({
           const loc = { lat: results[0].lat, lng: results[0].lng };
           const displayName = results[0].displayName;
 
-          // Update map view and location
-          mapRef.current?.setView([loc.lat, loc.lng], 15);
+          // Update map view with coordinate conversion
+          const converted = wgs84ToGcj02(loc.lat, loc.lng);
+          mapRef.current?.setView([converted.lat, converted.lng], 15);
           onLocationSelect?.(loc, displayName);
 
           // Clear search query for better UX
