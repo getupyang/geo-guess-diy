@@ -71,6 +71,11 @@ const GameMap: React.FC<GameMapProps> = ({
   );
 
   const applyTileSourceToMap = useCallback((map: L.Map, source: TileSource) => {
+    const GLOBAL_TILE_URLS = [
+      'https://mt{s}.google.cn/vt/lyrs=m&gl=cn&hl=zh-CN&x={x}&y={y}&z={z}',
+      'https://mt{s}.google.com/vt/lyrs=m&hl=zh-CN&x={x}&y={y}&z={z}'
+    ];
+
     if (tileLayerRef.current) {
       map.removeLayer(tileLayerRef.current);
       tileLayerRef.current = null;
@@ -80,14 +85,30 @@ const GameMap: React.FC<GameMapProps> = ({
       tileLayerRef.current = L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
         maxZoom: 18,
         subdomains: '1234',
-        attribution: '高德地图'
+        attribution: '高德地图',
+        updateWhenIdle: true,
+        keepBuffer: 6,
+        crossOrigin: true
       });
     } else {
-      tileLayerRef.current = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&hl=zh-CN&x={x}&y={y}&z={z}', {
+      let urlIndex = 0;
+      const tileLayer = L.tileLayer(GLOBAL_TILE_URLS[urlIndex], {
         maxZoom: 19,
         subdomains: '0123',
-        attribution: 'Google 地图'
+        attribution: 'Google 地图',
+        updateWhenIdle: true,
+        keepBuffer: 6,
+        crossOrigin: true
       });
+
+      tileLayer.on('tileerror', () => {
+        if (urlIndex < GLOBAL_TILE_URLS.length - 1) {
+          urlIndex += 1;
+          tileLayer.setUrl(GLOBAL_TILE_URLS[urlIndex]);
+        }
+      });
+
+      tileLayerRef.current = tileLayer;
     }
 
     tileLayerRef.current.addTo(map);
