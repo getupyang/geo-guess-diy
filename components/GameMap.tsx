@@ -71,12 +71,26 @@ const GameMap: React.FC<GameMapProps> = ({
     mapRef.current.on('click', async (e) => {
       // Only allow setting a marker if interactive is true
       if (!interactive || !onLocationSelect) return;
-      
-      onLocationSelect({ lat: e.latlng.lat, lng: e.latlng.lng });
-      
+
+      // IMPORTANT: Use a single location object to avoid coordinate mismatch
+      const clickedLocation = { lat: e.latlng.lat, lng: e.latlng.lng };
+
       if (enableSearch) {
-          const name = await getAddressFromCoords(e.latlng.lat, e.latlng.lng);
-          onLocationSelect({ lat: e.latlng.lat, lng: e.latlng.lng }, name);
+          // Create Mode: First call with location only (immediate feedback)
+          onLocationSelect(clickedLocation);
+
+          // Then fetch address and call again with same location + name
+          try {
+              const name = await getAddressFromCoords(clickedLocation.lat, clickedLocation.lng);
+              // Pass the SAME location object to ensure coordinates match
+              onLocationSelect(clickedLocation, name);
+          } catch (error) {
+              console.error('Failed to fetch address:', error);
+              // If address fetch fails, still keep the location set
+          }
+      } else {
+          // Play Mode: Single call, no address needed
+          onLocationSelect(clickedLocation);
       }
     });
 
@@ -248,10 +262,16 @@ const GameMap: React.FC<GameMapProps> = ({
       setIsSearching(false);
       if (results.length > 0) {
           const loc = { lat: results[0].lat, lng: results[0].lng };
+          const displayName = results[0].displayName;
+
+          // Update map view and location
           mapRef.current?.setView([loc.lat, loc.lng], 15);
-          onLocationSelect?.(loc, results[0].displayName);
+          onLocationSelect?.(loc, displayName);
+
+          // Clear search query for better UX
+          setSearchQuery('');
       } else {
-          alert('未找到地址');
+          alert('未找到地址，请尝试其他关键词');
       }
   };
 
@@ -265,21 +285,26 @@ const GameMap: React.FC<GameMapProps> = ({
         {/* Search Bar (Only Create Mode) */}
         {enableSearch && isOpen && (
             <div className="absolute top-4 left-4 right-16 z-[1000]">
-                <form onSubmit={handleSearch} className="flex gap-2 shadow-lg">
-                    <input 
-                        type="text" 
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="搜索地点..."
-                        className="flex-1 bg-white text-black px-4 py-3 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                    />
-                    <button 
-                        type="submit" 
-                        disabled={isSearching}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-full font-bold text-sm"
-                    >
-                        {isSearching ? '...' : '搜索'}
-                    </button>
+                <form onSubmit={handleSearch} className="flex flex-col gap-1.5">
+                    <div className="flex gap-2 shadow-lg">
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="搜索地点或地址..."
+                            className="flex-1 bg-white text-black px-4 py-3 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                        />
+                        <button
+                            type="submit"
+                            disabled={isSearching}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-full font-bold text-sm hover:bg-blue-700 disabled:bg-gray-400 transition"
+                        >
+                            {isSearching ? '...' : '搜索'}
+                        </button>
+                    </div>
+                    <p className="text-[10px] text-white/70 px-2 bg-black/30 backdrop-blur rounded-full py-0.5 self-start">
+                        💡 可以直接点击地图选点
+                    </p>
                 </form>
             </div>
         )}
