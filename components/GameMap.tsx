@@ -61,11 +61,10 @@ const GameMap: React.FC<GameMapProps> = ({
       scrollWheelZoom: true
     }).setView([safeCenter.lat, safeCenter.lng], initialCenter ? 13 : 3);
 
-    // Switch to GaoDe Map (AutoNavi) for Chinese labels globally
-    L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
-      maxZoom: 18,
-      subdomains: '1234',
-      attribution: '高德地图'
+    // OpenStreetMap for global coverage and WGS84 coordinate system (matches GPS)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
     }).addTo(mapRef.current);
 
     mapRef.current.on('click', async (e) => {
