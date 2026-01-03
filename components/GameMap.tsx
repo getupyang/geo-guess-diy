@@ -37,6 +37,7 @@ const GameMap: React.FC<GameMapProps> = ({
   const mapRef = useRef<L.Map | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const prevTileSourceRef = useRef<TileSource | null>(null);
   
   // References for cleanup
   const markersRef = useRef<L.Marker[]>([]);
@@ -51,7 +52,9 @@ const GameMap: React.FC<GameMapProps> = ({
   const defaultCenter = { lat: 35.8617, lng: 104.1954 };
   const safeCenter = initialCenter || defaultCenter;
   const getTileSourceFor = (loc: LatLng): TileSource => (isInChina(loc) ? 'gaode' : 'globalZh');
-  const [tileSource, setTileSource] = useState<TileSource>(() => getTileSourceFor(safeCenter));
+  const [tileSource, setTileSource] = useState<TileSource>(() =>
+    getTileSourceFor(initialCenter || actualLocation || selectedLocation || safeCenter)
+  );
 
   const toMapCoords = useCallback(
     (loc: LatLng, source: TileSource = tileSource): LatLng => {
@@ -80,7 +83,7 @@ const GameMap: React.FC<GameMapProps> = ({
         attribution: '高德地图'
       });
     } else {
-      tileLayerRef.current = L.tileLayer('https://mt{s}.google.cn/vt/lyrs=m&hl=zh-CN&x={x}&y={y}&z={z}', {
+      tileLayerRef.current = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&hl=zh-CN&x={x}&y={y}&z={z}', {
         maxZoom: 19,
         subdomains: '0123',
         attribution: 'Google 地图'
@@ -126,19 +129,51 @@ const GameMap: React.FC<GameMapProps> = ({
 
   // Re-apply tile source & keep current view consistent
   useEffect(() => {
-    if (!mapRef.current) return;
-
-    const anchor = selectedLocation || actualLocation || safeCenter;
+    const anchor = selectedLocation || actualLocation || initialCenter || safeCenter;
     const nextSource = getTileSourceFor(anchor);
     if (nextSource !== tileSource) {
       setTileSource(nextSource);
     }
+  }, [actualLocation, getTileSourceFor, initialCenter, safeCenter, selectedLocation, tileSource]);
 
-    applyTileSourceToMap(mapRef.current, nextSource);
+  // Keep the tile layer in sync while preserving the current view
+  useEffect(() => {
+    if (!mapRef.current) return;
 
-    const anchorOnMap = toMapCoords(anchor, nextSource);
-    mapRef.current.setView([anchorOnMap.lat, anchorOnMap.lng], mapRef.current.getZoom());
-  }, [actualLocation, applyTileSourceToMap, getTileSourceFor, safeCenter, selectedLocation, tileSource, toMapCoords]);
+    const map = mapRef.current;
+    const prevSource = prevTileSourceRef.current || tileSource;
+    const currentCenterOnMap = map.getCenter();
+    const currentZoom = map.getZoom();
+    const centerInWgs = fromMapCoords({ lat: currentCenterOnMap.lat, lng: currentCenterOnMap.lng }, prevSource);
+
+    applyTileSourceToMap(map, tileSource);
+
+    const centerOnNewSource = toMapCoords(centerInWgs, tileSource);
+    map.setView([centerOnNewSource.lat, centerOnNewSource.lng], currentZoom, { animate: false });
+
+    prevTileSourceRef.current = tileSource;
+  }, [applyTileSourceToMap, fromMapCoords, tileSource, toMapCoords]);
+
+  // Auto-detect tile source on map navigation
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    const handleMoveEnd = () => {
+      if (!mapRef.current) return;
+
+      const centerOnMap = mapRef.current.getCenter();
+      const centerInWgs = fromMapCoords({ lat: centerOnMap.lat, lng: centerOnMap.lng });
+      const nextSource = getTileSourceFor(centerInWgs);
+      if (nextSource !== tileSource) {
+        setTileSource(nextSource);
+      }
+    };
+
+    mapRef.current.on('moveend', handleMoveEnd);
+    return () => {
+      mapRef.current?.off('moveend', handleMoveEnd);
+    };
+  }, [fromMapCoords, getTileSourceFor, tileSource]);
 
   // Register click handler with correct coordinate system
   useEffect(() => {
