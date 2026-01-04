@@ -1,11 +1,12 @@
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { LatLng, Guess } from '../types';
 import { searchAddress, getAddressFromCoords } from '../services/geocodingService';
+import { gcj02ToWgs84, wgs84ToGcj02 } from '../services/coordTransform';
 
 interface GameMapProps {
-  initialCenter?: LatLng | null; 
+  initialCenter?: LatLng | null;
   onLocationSelect?: (latlng: LatLng, name?: string) => void;
   selectedLocation?: LatLng | null; // The current user's temporary selection in PLAY mode
   
@@ -18,6 +19,8 @@ interface GameMapProps {
   isOpen?: boolean;
   enableSearch?: boolean;
 }
+
+type TileSource = 'globalZh' | 'gaode';
 
 const GameMap: React.FC<GameMapProps> = ({ 
   initialCenter, 
@@ -33,6 +36,8 @@ const GameMap: React.FC<GameMapProps> = ({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const prevTileSourceRef = useRef<TileSource | null>(null);
   
   // References for cleanup
   const markersRef = useRef<L.Marker[]>([]);
@@ -41,15 +46,84 @@ const GameMap: React.FC<GameMapProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
 
-  // Default center (China)
-  const defaultCenter = { lat: 35.8617, lng: 104.1954 }; 
+  const isInChina = (loc: LatLng) => loc.lng >= 73 && loc.lng <= 135 && loc.lat >= 18 && loc.lat <= 54;
+
+  // Tile Source (auto-detected)
+  const defaultCenter = { lat: 35.8617, lng: 104.1954 };
   const safeCenter = initialCenter || defaultCenter;
+  const getTileSourceFor = (loc: LatLng): TileSource => (isInChina(loc) ? 'gaode' : 'globalZh');
+  const [tileSource, setTileSource] = useState<TileSource>(() =>
+    getTileSourceFor(initialCenter || actualLocation || selectedLocation || safeCenter)
+  );
+
+  const toMapCoords = useCallback(
+    (loc: LatLng, source: TileSource = tileSource): LatLng => {
+      return source === 'gaode' ? wgs84ToGcj02(loc.lat, loc.lng) : loc;
+    },
+    [tileSource]
+  );
+
+  const fromMapCoords = useCallback(
+    (loc: LatLng, source: TileSource = tileSource): LatLng => {
+      return source === 'gaode' ? gcj02ToWgs84(loc.lat, loc.lng) : loc;
+    },
+    [tileSource]
+  );
+
+  const applyTileSourceToMap = useCallback((map: L.Map, source: TileSource) => {
+    const GLOBAL_TILE_URLS = [
+      // 更快的中文全球瓦片：优先使用 googleapis 全球 CDN，其次回落到 google.cn / google.com
+      'https://mt{s}.googleapis.com/vt/lyrs=m&gl=cn&hl=zh-CN&lang=zh-CN&scale=2&x={x}&y={y}&z={z}',
+      'https://mt{s}.google.cn/vt/lyrs=m&gl=cn&hl=zh-CN&lang=zh-CN&scale=2&x={x}&y={y}&z={z}',
+      'https://mt{s}.google.com/vt/lyrs=m&hl=zh-CN&lang=zh-CN&scale=2&x={x}&y={y}&z={z}'
+    ];
+
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+      tileLayerRef.current = null;
+    }
+
+    if (source === 'gaode') {
+      tileLayerRef.current = L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+        maxZoom: 18,
+        subdomains: '1234',
+        attribution: '高德地图',
+        updateWhenIdle: true,
+        keepBuffer: 6,
+        crossOrigin: true
+      });
+    } else {
+      let urlIndex = 0;
+      const tileLayer = L.tileLayer(GLOBAL_TILE_URLS[urlIndex], {
+        maxZoom: 19,
+        maxNativeZoom: 18,
+        tileSize: 512, // scale=2 返回 512px，避免 Leaflet 缩放导致文字模糊
+        zoomOffset: -1,
+        subdomains: '0123',
+        attribution: 'Google 地图',
+        updateWhenIdle: true,
+        keepBuffer: 6,
+        crossOrigin: true
+      });
+
+      tileLayer.on('tileerror', () => {
+        if (urlIndex < GLOBAL_TILE_URLS.length - 1) {
+          urlIndex += 1;
+          tileLayer.setUrl(GLOBAL_TILE_URLS[urlIndex]);
+        }
+      });
+
+      tileLayerRef.current = tileLayer;
+    }
+
+    tileLayerRef.current.addTo(map);
+  }, []);
 
   // Initialize Map
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
-    // We allow dragging/zoom even if interactive is false (Review Mode), 
+    // We allow dragging/zoom even if interactive is false (Review Mode),
     // "interactive" here specifically means "Can I click to guess?"
     mapRef.current = L.map(mapContainerRef.current, {
       zoomControl: false,
@@ -59,26 +133,9 @@ const GameMap: React.FC<GameMapProps> = ({
       dragging: true, // Always allow panning
       touchZoom: true,
       scrollWheelZoom: true
-    }).setView([safeCenter.lat, safeCenter.lng], initialCenter ? 13 : 3);
+    }).setView([toMapCoords(safeCenter).lat, toMapCoords(safeCenter).lng], initialCenter ? 13 : 3);
 
-    // Switch to GaoDe Map (AutoNavi) for Chinese labels globally
-    L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
-      maxZoom: 18,
-      subdomains: '1234',
-      attribution: '高德地图'
-    }).addTo(mapRef.current);
-
-    mapRef.current.on('click', async (e) => {
-      // Only allow setting a marker if interactive is true
-      if (!interactive || !onLocationSelect) return;
-      
-      onLocationSelect({ lat: e.latlng.lat, lng: e.latlng.lng });
-      
-      if (enableSearch) {
-          const name = await getAddressFromCoords(e.latlng.lat, e.latlng.lng);
-          onLocationSelect({ lat: e.latlng.lat, lng: e.latlng.lng }, name);
-      }
-    });
+    applyTileSourceToMap(mapRef.current, tileSource);
 
     // Add Resize Observer to handle mobile address bar resizing/keyboard showing
     resizeObserver.current = new ResizeObserver(() => {
@@ -94,7 +151,77 @@ const GameMap: React.FC<GameMapProps> = ({
         }
     }
 
-  }, []);
+  }, [applyTileSourceToMap, initialCenter, safeCenter, tileSource, toMapCoords]);
+
+  // Re-apply tile source & keep current view consistent
+  useEffect(() => {
+    const anchor = selectedLocation || actualLocation || initialCenter || safeCenter;
+    const nextSource = getTileSourceFor(anchor);
+    if (nextSource !== tileSource) {
+      setTileSource(nextSource);
+    }
+  }, [actualLocation, getTileSourceFor, initialCenter, safeCenter, selectedLocation, tileSource]);
+
+  // Keep the tile layer in sync while preserving the current view
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    const map = mapRef.current;
+    const prevSource = prevTileSourceRef.current || tileSource;
+    const currentCenterOnMap = map.getCenter();
+    const currentZoom = map.getZoom();
+    const centerInWgs = fromMapCoords({ lat: currentCenterOnMap.lat, lng: currentCenterOnMap.lng }, prevSource);
+
+    applyTileSourceToMap(map, tileSource);
+
+    const centerOnNewSource = toMapCoords(centerInWgs, tileSource);
+    map.setView([centerOnNewSource.lat, centerOnNewSource.lng], currentZoom, { animate: false });
+
+    prevTileSourceRef.current = tileSource;
+  }, [applyTileSourceToMap, fromMapCoords, tileSource, toMapCoords]);
+
+  // Auto-detect tile source on map navigation
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    const handleMoveEnd = () => {
+      if (!mapRef.current) return;
+
+      const centerOnMap = mapRef.current.getCenter();
+      const centerInWgs = fromMapCoords({ lat: centerOnMap.lat, lng: centerOnMap.lng });
+      const nextSource = getTileSourceFor(centerInWgs);
+      if (nextSource !== tileSource) {
+        setTileSource(nextSource);
+      }
+    };
+
+    mapRef.current.on('moveend', handleMoveEnd);
+    return () => {
+      mapRef.current?.off('moveend', handleMoveEnd);
+    };
+  }, [fromMapCoords, getTileSourceFor, tileSource]);
+
+  // Register click handler with correct coordinate system
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    const handleClick = async (e: L.LeafletMouseEvent) => {
+      if (!interactive || !onLocationSelect) return;
+      const wgsPoint = fromMapCoords({ lat: e.latlng.lat, lng: e.latlng.lng });
+
+      onLocationSelect(wgsPoint);
+
+      if (enableSearch) {
+          const name = await getAddressFromCoords(wgsPoint.lat, wgsPoint.lng);
+          onLocationSelect(wgsPoint, name);
+      }
+    };
+
+    mapRef.current.on('click', handleClick);
+    return () => {
+      mapRef.current?.off('click', handleClick);
+    };
+  }, [enableSearch, fromMapCoords, interactive, onLocationSelect]);
 
   // Handle Resize Trigger from Parent & Auto Fit Bounds
   // CRITICAL FIX: We must wait for the transition animation (300ms) to finish before fitting bounds,
@@ -106,28 +233,35 @@ const GameMap: React.FC<GameMapProps> = ({
 
       const timer = setTimeout(() => {
         if (!mapRef.current) return;
-        
+
         mapRef.current.invalidateSize();
 
         // Only auto-fit bounds in REVIEW mode (when actualLocation exists)
         // In PLAY mode, we usually want to keep the user's manual view or default center
         if (actualLocation && guesses.length > 0) {
-            const bounds = L.latLngBounds([actualLocation.lat, actualLocation.lng], [actualLocation.lat, actualLocation.lng]);
-            guesses.forEach(g => bounds.extend([g.location.lat, g.location.lng]));
+            const bounds = L.latLngBounds(
+              [toMapCoords(actualLocation).lat, toMapCoords(actualLocation).lng],
+              [toMapCoords(actualLocation).lat, toMapCoords(actualLocation).lng]
+            );
+            guesses.forEach(g => {
+              const guessPoint = toMapCoords(g.location);
+              bounds.extend([guessPoint.lat, guessPoint.lng]);
+            });
             mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
         }
       }, 350); // 350ms > 300ms transition duration
       
       return () => clearTimeout(timer);
     }
-  }, [isOpen, actualLocation, guesses]);
+  }, [isOpen, actualLocation, guesses, toMapCoords]);
 
   // Handle Initial Center Update (rarely needed but good for re-centering)
   useEffect(() => {
       if (mapRef.current && initialCenter) {
-          mapRef.current.setView([initialCenter.lat, initialCenter.lng], 13);
+          const mapPoint = toMapCoords(initialCenter);
+          mapRef.current.setView([mapPoint.lat, mapPoint.lng], 13);
       }
-  }, [initialCenter?.lat, initialCenter?.lng]);
+  }, [initialCenter?.lat, initialCenter?.lng, toMapCoords]);
 
 
   // --- Render Markers & Logic ---
@@ -150,6 +284,7 @@ const GameMap: React.FC<GameMapProps> = ({
 
     // 1. Render Actual Location (Target) - Only if provided (Review Mode)
     if (actualLocation) {
+        const actualPoint = toMapCoords(actualLocation);
         const flagIcon = L.divIcon({
             className: 'bg-transparent',
             html: `<div class="relative">
@@ -159,22 +294,23 @@ const GameMap: React.FC<GameMapProps> = ({
             iconSize: [30, 30],
             iconAnchor: [6, 30]
         });
-        addMarker(actualLocation.lat, actualLocation.lng, flagIcon);
+        addMarker(actualPoint.lat, actualPoint.lng, flagIcon);
     }
 
     // 2. Render User Selection (Play Mode - Temporary Pin)
     if (selectedLocation && interactive) {
+        const selectionPoint = toMapCoords(selectedLocation);
         const tempIcon = L.divIcon({
             className: 'bg-transparent',
             html: `<div class="w-6 h-6 rounded-full bg-blue-500 border-2 border-white shadow-lg animate-bounce"></div>`,
             iconSize: [24, 24],
             iconAnchor: [12, 12]
         });
-        const m = addMarker(selectedLocation.lat, selectedLocation.lng, tempIcon);
-        
+        const m = addMarker(selectionPoint.lat, selectionPoint.lng, tempIcon);
+
         // Only pan in search mode (Creation), not play mode
         if (enableSearch) {
-            map.panTo([selectedLocation.lat, selectedLocation.lng]);
+            map.panTo([selectionPoint.lat, selectionPoint.lng]);
         }
     }
 
@@ -192,7 +328,8 @@ const GameMap: React.FC<GameMapProps> = ({
 
         displayGuesses.forEach(g => {
             const isMe = g.userId === currentUserId;
-            
+            const guessPoint = toMapCoords(g.location);
+
             // Generate Avatar Icon
             const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${g.userAvatarSeed || g.userId}&backgroundColor=b6e3f4`;
             
@@ -217,13 +354,13 @@ const GameMap: React.FC<GameMapProps> = ({
                 iconAnchor: [16, 16]
             });
 
-            addMarker(g.location.lat, g.location.lng, icon);
+            addMarker(guessPoint.lat, guessPoint.lng, icon);
 
             // Draw line ONLY for current user
             const line = L.polyline([
-                [g.location.lat, g.location.lng],
-                [actualLocation.lat, actualLocation.lng]
-            ], { 
+                [guessPoint.lat, guessPoint.lng],
+                [toMapCoords(actualLocation).lat, toMapCoords(actualLocation).lng]
+            ], {
                 color: isMe ? '#f97316' : '#9ca3af', // Orange for me, Gray for others
                 weight: isMe ? 3 : 1, 
                 opacity: isMe ? 1 : 0.3,
@@ -235,8 +372,7 @@ const GameMap: React.FC<GameMapProps> = ({
         // Note: We removed the immediate fitBounds here because it often runs before the map is fully visible/sized.
         // We now rely on the useEffect([isOpen...]) with delay to handle the fitting.
     }
-
-  }, [selectedLocation, actualLocation, guesses, currentUserId, interactive]);
+  }, [selectedLocation, actualLocation, guesses, currentUserId, interactive, toMapCoords]);
 
   // --- Handlers ---
 
@@ -248,7 +384,8 @@ const GameMap: React.FC<GameMapProps> = ({
       setIsSearching(false);
       if (results.length > 0) {
           const loc = { lat: results[0].lat, lng: results[0].lng };
-          mapRef.current?.setView([loc.lat, loc.lng], 15);
+          const mapLoc = toMapCoords(loc);
+          mapRef.current?.setView([mapLoc.lat, mapLoc.lng], 15);
           onLocationSelect?.(loc, results[0].displayName);
       } else {
           alert('未找到地址');
