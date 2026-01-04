@@ -72,6 +72,8 @@ const GameMap: React.FC<GameMapProps> = ({
 
   const applyTileSourceToMap = useCallback((map: L.Map, source: TileSource) => {
     const GLOBAL_TILE_URLS = [
+      // 更快的中文全球瓦片：优先使用 googleapis 全球 CDN，其次回落到 google.cn / google.com
+      'https://mt{s}.googleapis.com/vt/lyrs=m&gl=cn&hl=zh-CN&lang=zh-CN&scale=2&x={x}&y={y}&z={z}',
       'https://mt{s}.google.cn/vt/lyrs=m&gl=cn&hl=zh-CN&lang=zh-CN&scale=2&x={x}&y={y}&z={z}',
       'https://mt{s}.google.com/vt/lyrs=m&hl=zh-CN&lang=zh-CN&scale=2&x={x}&y={y}&z={z}'
     ];
@@ -94,10 +96,12 @@ const GameMap: React.FC<GameMapProps> = ({
       let urlIndex = 0;
       const tileLayer = L.tileLayer(GLOBAL_TILE_URLS[urlIndex], {
         maxZoom: 19,
+        maxNativeZoom: 18,
         subdomains: '0123',
         attribution: 'Google 地图',
         updateWhenIdle: true,
         keepBuffer: 6,
+        detectRetina: true,
         crossOrigin: true
       });
 
