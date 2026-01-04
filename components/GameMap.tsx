@@ -97,11 +97,12 @@ const GameMap: React.FC<GameMapProps> = ({
       const tileLayer = L.tileLayer(GLOBAL_TILE_URLS[urlIndex], {
         maxZoom: 19,
         maxNativeZoom: 18,
+        tileSize: 512, // scale=2 返回 512px，避免 Leaflet 缩放导致文字模糊
+        zoomOffset: -1,
         subdomains: '0123',
         attribution: 'Google 地图',
         updateWhenIdle: true,
         keepBuffer: 6,
-        detectRetina: true,
         crossOrigin: true
       });
 
