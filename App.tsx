@@ -109,6 +109,7 @@ const App = () => {
   const [createImageHistory, setCreateImageHistory] = useState<string[]>([]);
   const [createLocation, setCreateLocation] = useState<LatLng | null>(null);
   const [createLocationName, setCreateLocationName] = useState<string>("");
+  const [isLoadingAddress, setIsLoadingAddress] = useState(false);
   const [isMosaicMode, setIsMosaicMode] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
 
@@ -233,6 +234,7 @@ const App = () => {
     setCreateImageHistory([]);
     setCreateLocation(null);
     setCreateLocationName("");
+    setIsLoadingAddress(false);
     setIsMapOpen(false);
     setIsMosaicMode(false);
     setIsPublishing(false);
@@ -393,7 +395,14 @@ const App = () => {
                       const loc = { lat: toDecimal(lat, latRef), lng: toDecimal(lng, lngRef) };
                       setCreateLocation(loc);
                       setCreateLocationName("");
-                      getAddressFromCoords(loc.lat, loc.lng).then(setCreateLocationName);
+                      setIsLoadingAddress(true);
+                      getAddressFromCoords(loc.lat, loc.lng).then(name => {
+                          setCreateLocationName(name);
+                          setIsLoadingAddress(false);
+                      }).catch(() => {
+                          setCreateLocationName("未知地点");
+                          setIsLoadingAddress(false);
+                      });
                   }
               }
           });
@@ -656,9 +665,14 @@ const App = () => {
                   {isCreate && createLocation && !isMapOpen && (
                       <div className="absolute bottom-28 bg-black/60 backdrop-blur px-4 py-2 rounded-lg text-white flex items-center gap-2 border border-white/10 pointer-events-none">
                           <span className="text-sm truncate max-w-[200px]">
-                            {createLocationName || "正在解析地址..."}
+                            {isLoadingAddress ? "正在解析地址..." : (createLocationName || "未知地点")}
                           </span>
-                          <IconCheck />
+                          {isLoadingAddress ? (
+                              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                          ) : <IconCheck />}
                       </div>
                   )}
               </div>
@@ -721,14 +735,22 @@ const App = () => {
                   <button onClick={() => setIsMapOpen(false)} className="absolute top-3 right-4 w-8 h-8 bg-black/60 rounded-full text-white z-[1100] flex items-center justify-center"><IconClose /></button>
 
                   <div className="flex-1 relative bg-gray-200">
-                      <GameMap 
+                      <GameMap
                           isOpen={isMapOpen}
                           interactive={mode !== GameMode.REVIEW}
                           enableSearch={isCreate}
-                          initialCenter={isCreate ? createLocation : null} 
-                          onLocationSelect={isCreate ? (l, n) => { 
-                              setCreateLocation(l); 
-                              setCreateLocationName(n || ""); 
+                          initialCenter={isCreate ? createLocation : null}
+                          onLocationSelect={isCreate ? (l, n) => {
+                              setCreateLocation(l);
+                              if (n === undefined) {
+                                  // First call (no name yet) - start loading
+                                  setIsLoadingAddress(true);
+                                  setCreateLocationName("");
+                              } else {
+                                  // Second call (with name) - done loading
+                                  setIsLoadingAddress(false);
+                                  setCreateLocationName(n);
+                              }
                            } : setUserGuess}
                           selectedLocation={isCreate ? createLocation : (mode === GameMode.PLAY ? userGuess : null)}
                           

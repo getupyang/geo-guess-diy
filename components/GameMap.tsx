@@ -42,14 +42,14 @@ const GameMap: React.FC<GameMapProps> = ({
   const [isSearching, setIsSearching] = useState(false);
 
   // Default center (China)
-  const defaultCenter = { lat: 35.8617, lng: 104.1954 }; 
-  const safeCenter = initialCenter || defaultCenter;
+  const defaultCenter = { lat: 35.8617, lng: 104.1954 };
+  const center = initialCenter || defaultCenter;
 
   // Initialize Map
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
-    // We allow dragging/zoom even if interactive is false (Review Mode), 
+    // We allow dragging/zoom even if interactive is false (Review Mode),
     // "interactive" here specifically means "Can I click to guess?"
     mapRef.current = L.map(mapContainerRef.current, {
       zoomControl: false,
@@ -59,24 +59,42 @@ const GameMap: React.FC<GameMapProps> = ({
       dragging: true, // Always allow panning
       touchZoom: true,
       scrollWheelZoom: true
-    }).setView([safeCenter.lat, safeCenter.lng], initialCenter ? 13 : 3);
+    }).setView([center.lat, center.lng], initialCenter ? 13 : 3);
 
-    // Switch to GaoDe Map (AutoNavi) for Chinese labels globally
-    L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
-      maxZoom: 18,
-      subdomains: '1234',
-      attribution: '高德地图'
+    // Google Maps with Chinese labels
+    // Uses WGS84 coordinates (standard GPS, no conversion needed)
+    // Priority: googleapis.com (global CDN) with google.cn fallback for reliability
+    L.tileLayer('https://mt{s}.googleapis.com/vt?lyrs=m&x={x}&y={y}&z={z}&hl=zh-CN', {
+      maxZoom: 20,
+      maxNativeZoom: 18, // Load tiles up to zoom 18, then scale for 19-20 (reduces requests)
+      detectRetina: true, // Automatically load high-res tiles on Retina displays
+      subdomains: ['0', '1', '2', '3'],
+      attribution: '地图数据 ©Google'
     }).addTo(mapRef.current);
 
     mapRef.current.on('click', async (e) => {
       // Only allow setting a marker if interactive is true
       if (!interactive || !onLocationSelect) return;
-      
-      onLocationSelect({ lat: e.latlng.lat, lng: e.latlng.lng });
-      
+
+      // IMPORTANT: Use a single location object to avoid coordinate mismatch
+      const clickedLocation = { lat: e.latlng.lat, lng: e.latlng.lng };
+
       if (enableSearch) {
-          const name = await getAddressFromCoords(e.latlng.lat, e.latlng.lng);
-          onLocationSelect({ lat: e.latlng.lat, lng: e.latlng.lng }, name);
+          // Create Mode: First call with location only (immediate feedback)
+          onLocationSelect(clickedLocation);
+
+          // Then fetch address and call again with same location + name
+          try {
+              const name = await getAddressFromCoords(clickedLocation.lat, clickedLocation.lng);
+              // Pass the SAME location object to ensure coordinates match
+              onLocationSelect(clickedLocation, name);
+          } catch (error) {
+              console.error('Failed to fetch address:', error);
+              // If address fetch fails, still keep the location set
+          }
+      } else {
+          // Play Mode: Single call, no address needed
+          onLocationSelect(clickedLocation);
       }
     });
 
@@ -113,7 +131,9 @@ const GameMap: React.FC<GameMapProps> = ({
         // In PLAY mode, we usually want to keep the user's manual view or default center
         if (actualLocation && guesses.length > 0) {
             const bounds = L.latLngBounds([actualLocation.lat, actualLocation.lng], [actualLocation.lat, actualLocation.lng]);
-            guesses.forEach(g => bounds.extend([g.location.lat, g.location.lng]));
+            guesses.forEach(g => {
+                bounds.extend([g.location.lat, g.location.lng]);
+            });
             mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
         }
       }, 350); // 350ms > 300ms transition duration
@@ -141,7 +161,7 @@ const GameMap: React.FC<GameMapProps> = ({
     markersRef.current = [];
     linesRef.current = [];
 
-    // Helper to add marker
+    // Helper to add marker (no conversion needed - Google Maps uses WGS84)
     const addMarker = (lat: number, lng: number, icon: L.Icon | L.DivIcon) => {
         const m = L.marker([lat, lng], { icon }).addTo(map);
         markersRef.current.push(m);
@@ -171,7 +191,7 @@ const GameMap: React.FC<GameMapProps> = ({
             iconAnchor: [12, 12]
         });
         const m = addMarker(selectedLocation.lat, selectedLocation.lng, tempIcon);
-        
+
         // Only pan in search mode (Creation), not play mode
         if (enableSearch) {
             map.panTo([selectedLocation.lat, selectedLocation.lng]);
@@ -219,15 +239,15 @@ const GameMap: React.FC<GameMapProps> = ({
 
             addMarker(g.location.lat, g.location.lng, icon);
 
-            // Draw line ONLY for current user
+            // Draw line from guess to actual location
             const line = L.polyline([
                 [g.location.lat, g.location.lng],
                 [actualLocation.lat, actualLocation.lng]
-            ], { 
+            ], {
                 color: isMe ? '#f97316' : '#9ca3af', // Orange for me, Gray for others
-                weight: isMe ? 3 : 1, 
+                weight: isMe ? 3 : 1,
                 opacity: isMe ? 1 : 0.3,
-                dashArray: '4, 6' 
+                dashArray: '4, 6'
             }).addTo(map);
             linesRef.current.push(line);
         });
@@ -248,10 +268,16 @@ const GameMap: React.FC<GameMapProps> = ({
       setIsSearching(false);
       if (results.length > 0) {
           const loc = { lat: results[0].lat, lng: results[0].lng };
+          const displayName = results[0].displayName;
+
+          // Update map view (no conversion needed - Google Maps uses WGS84)
           mapRef.current?.setView([loc.lat, loc.lng], 15);
-          onLocationSelect?.(loc, results[0].displayName);
+          onLocationSelect?.(loc, displayName);
+
+          // Clear search query for better UX
+          setSearchQuery('');
       } else {
-          alert('未找到地址');
+          alert('未找到地址，请尝试其他关键词');
       }
   };
 
@@ -265,21 +291,26 @@ const GameMap: React.FC<GameMapProps> = ({
         {/* Search Bar (Only Create Mode) */}
         {enableSearch && isOpen && (
             <div className="absolute top-4 left-4 right-16 z-[1000]">
-                <form onSubmit={handleSearch} className="flex gap-2 shadow-lg">
-                    <input 
-                        type="text" 
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="搜索地点..."
-                        className="flex-1 bg-white text-black px-4 py-3 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                    />
-                    <button 
-                        type="submit" 
-                        disabled={isSearching}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-full font-bold text-sm"
-                    >
-                        {isSearching ? '...' : '搜索'}
-                    </button>
+                <form onSubmit={handleSearch} className="flex flex-col gap-1.5">
+                    <div className="flex gap-2 shadow-lg">
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="搜索地点或地址..."
+                            className="flex-1 bg-white text-black px-4 py-3 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                        />
+                        <button
+                            type="submit"
+                            disabled={isSearching}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-full font-bold text-sm hover:bg-blue-700 disabled:bg-gray-400 transition"
+                        >
+                            {isSearching ? '...' : '搜索'}
+                        </button>
+                    </div>
+                    <p className="text-[10px] text-white/70 px-2 bg-black/30 backdrop-blur rounded-full py-0.5 self-start">
+                        💡 可以直接点击地图选点
+                    </p>
                 </form>
             </div>
         )}
