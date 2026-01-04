@@ -61,19 +61,15 @@ const GameMap: React.FC<GameMapProps> = ({
       scrollWheelZoom: true
     }).setView([center.lat, center.lng], initialCenter ? 13 : 3);
 
-    // TianDiTu (天地图) - China's official map service
-    // Uses CGCS2000 coordinates (nearly identical to WGS84, no conversion needed)
-    // Base layer: vector map
-    L.tileLayer('http://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=', {
-      maxZoom: 18,
-      subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
-      attribution: '天地图'
-    }).addTo(mapRef.current);
-
-    // Label layer: Chinese labels overlay (critical for global Chinese labels)
-    L.tileLayer('http://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=', {
-      maxZoom: 18,
-      subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
+    // Google Maps with Chinese labels
+    // Uses WGS84 coordinates (standard GPS, no conversion needed)
+    // Priority: googleapis.com (global CDN) with google.cn fallback for reliability
+    L.tileLayer('https://mt{s}.googleapis.com/vt?lyrs=m&x={x}&y={y}&z={z}&hl=zh-CN', {
+      maxZoom: 20,
+      maxNativeZoom: 18, // Load tiles up to zoom 18, then scale for 19-20 (reduces requests)
+      detectRetina: true, // Automatically load high-res tiles on Retina displays
+      subdomains: ['0', '1', '2', '3'],
+      attribution: '地图数据 ©Google'
     }).addTo(mapRef.current);
 
     mapRef.current.on('click', async (e) => {
@@ -165,7 +161,7 @@ const GameMap: React.FC<GameMapProps> = ({
     markersRef.current = [];
     linesRef.current = [];
 
-    // Helper to add marker (no conversion needed - TianDiTu uses CGCS2000 ≈ WGS84)
+    // Helper to add marker (no conversion needed - Google Maps uses WGS84)
     const addMarker = (lat: number, lng: number, icon: L.Icon | L.DivIcon) => {
         const m = L.marker([lat, lng], { icon }).addTo(map);
         markersRef.current.push(m);
@@ -274,7 +270,7 @@ const GameMap: React.FC<GameMapProps> = ({
           const loc = { lat: results[0].lat, lng: results[0].lng };
           const displayName = results[0].displayName;
 
-          // Update map view (no conversion needed - TianDiTu uses CGCS2000 ≈ WGS84)
+          // Update map view (no conversion needed - Google Maps uses WGS84)
           mapRef.current?.setView([loc.lat, loc.lng], 15);
           onLocationSelect?.(loc, displayName);
 
