@@ -134,6 +134,7 @@ const App = () => {
   const [myCreatedGames, setMyCreatedGames] = useState<GameData[]>([]);
 
   // Collection State
+  const [collectionHomeKey, setCollectionHomeKey] = useState(0);
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
   const [activeCollectionGameIds, setActiveCollectionGameIds] = useState<string[]>([]);
   const [activeCollectionName, setActiveCollectionName] = useState('');
@@ -685,6 +686,7 @@ const App = () => {
   if (mode === GameMode.COLLECTION_HOME && activeCollectionId && currentUser) {
     return (
       <CollectionHome
+        key={collectionHomeKey}
         collectionId={activeCollectionId}
         currentUser={currentUser}
         onBack={() => window.location.hash = ''}
@@ -706,6 +708,7 @@ const App = () => {
         startIndex={collectionPlayStartIndex}
         currentUser={currentUser}
         onComplete={() => {
+          setCollectionHomeKey(k => k + 1);
           window.location.hash = `#collection/${activeCollectionId}`;
         }}
         onBack={() => {
