@@ -19,20 +19,33 @@ interface Props {
   onStartPlay: (collectionId: string, gameIds: string[], startIndex: number) => void;
 }
 
-// Lazily loads one game thumbnail
-const GameThumb: React.FC<{ gameId: string; index: number; avgScore?: number }> = ({
-  gameId,
-  index,
-  avgScore,
-}) => {
+type CompletedItem = { gameId: string; score: number; distance: number };
+
+const formatDist = (m: number) =>
+  m < 1000 ? `${Math.round(m)}m` : `${(m / 1000).toFixed(1)}km`;
+
+// Lazily loads one game thumbnail row
+const GameThumb: React.FC<{
+  gameId: string;
+  index: number;
+  avgScore?: number;
+  myScore?: number;
+  myDistance?: number;
+  onClick?: () => void;
+}> = ({ gameId, index, avgScore, myScore, myDistance, onClick }) => {
   const [game, setGame] = useState<GameData | null>(null);
   useEffect(() => {
     getGameById(gameId).then(setGame);
   }, [gameId]);
 
   return (
-    <div className="flex items-center gap-3 py-2">
-      <span className="w-6 text-center text-xs text-gray-500 font-bold flex-shrink-0">
+    <div
+      className={`flex items-center gap-3 py-2.5 ${
+        onClick ? 'cursor-pointer -mx-2 px-2 rounded-xl active:bg-gray-700/60 transition-colors' : ''
+      }`}
+      onClick={onClick}
+    >
+      <span className="w-5 text-center text-xs text-gray-500 font-bold flex-shrink-0">
         {index + 1}
       </span>
       <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-gray-800">
@@ -47,7 +60,31 @@ const GameThumb: React.FC<{ gameId: string; index: number; avgScore?: number }> 
         {avgScore !== undefined && (
           <p className="text-xs text-gray-500 mt-0.5">平均得分 {avgScore.toLocaleString()} 分</p>
         )}
+        {myScore !== undefined && (
+          <p className="text-xs text-orange-400 mt-0.5">
+            {myScore.toLocaleString()} 分
+            {myDistance !== undefined && (
+              <span className="text-gray-500 ml-1">· 误差 {formatDist(myDistance)}</span>
+            )}
+          </p>
+        )}
       </div>
+      {onClick && (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-gray-600 flex-shrink-0"
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      )}
     </div>
   );
 };
@@ -60,7 +97,7 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
   // Creator-specific
   const [stats, setStats] = useState<CollectionStats | null>(null);
 
-  // Player-specific
+  // Shared: leaderboard (loaded for both creator and completed player)
   const [leaderboard, setLeaderboard] = useState<{
     topTen: CollectionAttempt[];
     myRecord: CollectionAttempt | null;
@@ -68,6 +105,7 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
 
   const [isCreator, setIsCreator] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
+  const [completedItems, setCompletedItems] = useState<CompletedItem[]>([]);
   const [hasProgress, setHasProgress] = useState(false);
   const [startIndex, setStartIndex] = useState(0);
   const [shareToast, setShareToast] = useState(false);
@@ -89,22 +127,22 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
       setIsCreator(creator);
 
       if (creator) {
-        const s = await getCollectionStats(collectionId);
+        const [s, lb] = await Promise.all([
+          getCollectionStats(collectionId),
+          getCollectionLeaderboard(collectionId, currentUser.id),
+        ]);
         setStats(s);
+        setLeaderboard(lb);
       } else {
-        // Check progress
         const progress = getCollectionProgress(collectionId, currentUser.id);
         if (progress?.isCompleted) {
           setIsCompleted(true);
+          setCompletedItems(progress.completedItems);
+          const lb = await getCollectionLeaderboard(collectionId, currentUser.id);
+          setLeaderboard(lb);
         } else if (progress) {
           setHasProgress(true);
           setStartIndex(progress.completedItems.length);
-        }
-
-        // Load leaderboard for completed players (and non-completed who want to peek)
-        if (progress?.isCompleted) {
-          const lb = await getCollectionLeaderboard(collectionId, currentUser.id);
-          setLeaderboard(lb);
         }
       }
 
@@ -117,7 +155,6 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
   const handleShare = async () => {
     if (!collection) return;
     const url = `${window.location.origin}/?collection=${collectionId}`;
-    const progress = getCollectionProgress(collectionId, currentUser.id);
 
     let text: string;
     if (isCreator) {
@@ -168,7 +205,7 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
           <span className="text-xs text-gray-500">{collection.itemCount} 道题</span>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
           {/* Stats */}
           {stats && (
             <div className="grid grid-cols-2 gap-3">
@@ -185,10 +222,22 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
             </div>
           )}
 
+          {/* Leaderboard */}
+          {leaderboard && leaderboard.topTen.length > 0 && (
+            <div className="bg-gray-800 rounded-2xl p-4">
+              <h2 className="text-sm font-bold text-gray-300 mb-3">排行榜</h2>
+              <CollectionLeaderboard
+                topTen={leaderboard.topTen}
+                myRecord={leaderboard.myRecord}
+                currentUserId={currentUser.id}
+              />
+            </div>
+          )}
+
           {/* Per-question list */}
           <div className="bg-gray-800 rounded-2xl p-4">
-            <h2 className="text-sm font-bold text-gray-300 mb-3">题目列表</h2>
-            <div className="divide-y divide-gray-700">
+            <h2 className="text-sm font-bold text-gray-300 mb-1">题目列表</h2>
+            <div className="divide-y divide-gray-700/60">
               {gameIds.map((gid, idx) => {
                 const avg = stats?.perGameAvgScore.find((p) => p.gameId === gid);
                 return (
@@ -197,6 +246,7 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
                     gameId={gid}
                     index={idx}
                     avgScore={stats && stats.totalCompletions > 0 ? avg?.avgScore : undefined}
+                    onClick={() => { window.location.hash = `#play/${gid}`; }}
                   />
                 );
               })}
@@ -229,7 +279,7 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
           <h1 className="font-bold text-lg flex-1 truncate">{collection.name}</h1>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
           {/* Celebration banner */}
           <div className="bg-gradient-to-br from-orange-500/20 to-yellow-500/10 border border-orange-500/30 rounded-3xl p-6 text-center">
             <div className="text-5xl mb-3">🎉</div>
@@ -246,6 +296,7 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
             </div>
           </div>
 
+          {/* Leaderboard */}
           <div className="bg-gray-800 rounded-2xl p-4">
             <h2 className="text-sm font-bold text-gray-300 mb-3">排行榜</h2>
             <CollectionLeaderboard
@@ -253,6 +304,26 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
               myRecord={leaderboard.myRecord}
               currentUserId={currentUser.id}
             />
+          </div>
+
+          {/* Per-question review list */}
+          <div className="bg-gray-800 rounded-2xl p-4">
+            <h2 className="text-sm font-bold text-gray-300 mb-1">题目回顾</h2>
+            <div className="divide-y divide-gray-700/60">
+              {gameIds.map((gid, idx) => {
+                const item = completedItems.find((ci) => ci.gameId === gid);
+                return (
+                  <GameThumb
+                    key={gid}
+                    gameId={gid}
+                    index={idx}
+                    myScore={item?.score}
+                    myDistance={item?.distance}
+                    onClick={() => { window.location.hash = `#play/${gid}`; }}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
 

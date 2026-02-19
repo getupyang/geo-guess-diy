@@ -111,15 +111,26 @@ const attachStats = async (collections: CollectionWithStats[]): Promise<void> =>
 
   const { data } = await supabase
     .from('collection_attempts')
-    .select('collection_id, total_score')
+    .select('collection_id, user_id, total_score')
     .in('collection_id', ids);
 
   if (!data) return;
 
-  const statsMap = new Map<string, { count: number; total: number }>();
+  // Deduplicate: per (collection_id, user_id), keep best score
+  const userBest = new Map<string, number>(); // key: `${collectionId}|${userId}`
   for (const row of data) {
-    const s = statsMap.get(row.collection_id) || { count: 0, total: 0 };
-    statsMap.set(row.collection_id, { count: s.count + 1, total: s.total + row.total_score });
+    const key = `${row.collection_id}|${row.user_id}`;
+    const prev = userBest.get(key);
+    if (prev === undefined || row.total_score > prev) {
+      userBest.set(key, row.total_score);
+    }
+  }
+
+  const statsMap = new Map<string, { count: number; total: number }>();
+  for (const [key, score] of userBest) {
+    const collId = key.split('|')[0];
+    const s = statsMap.get(collId) || { count: 0, total: 0 };
+    statsMap.set(collId, { count: s.count + 1, total: s.total + score });
   }
   for (const c of collections) {
     const s = statsMap.get(c.id);
@@ -163,16 +174,26 @@ export const getMyPlayedCollections = async (userId: string): Promise<Collection
 
   if (error || !attempts || attempts.length === 0) return [];
 
-  const ids = attempts.map((a) => a.collection_id);
+  // Deduplicate by collection_id: keep best score (tie-break: latest completed_at)
+  const bestByCollection = new Map<string, { total_score: number; completed_at: number }>();
+  for (const a of attempts) {
+    const prev = bestByCollection.get(a.collection_id);
+    if (!prev || a.total_score > prev.total_score) {
+      bestByCollection.set(a.collection_id, { total_score: a.total_score, completed_at: a.completed_at });
+    }
+  }
+
+  const ids = Array.from(bestByCollection.keys());
   const { data: collData } = await supabase.from('collections').select('*').in('id', ids);
   if (!collData) return [];
 
   const collMap = new Map(collData.map((c) => [c.id, c]));
 
-  return attempts
-    .map((a) => {
-      const coll = collMap.get(a.collection_id);
-      if (!coll) return null;
+  return ids
+    .map((collId) => {
+      const coll = collMap.get(collId);
+      const best = bestByCollection.get(collId);
+      if (!coll || !best) return null;
       return {
         id: coll.id,
         name: coll.name,
@@ -180,8 +201,8 @@ export const getMyPlayedCollections = async (userId: string): Promise<Collection
         authorName: coll.author_name,
         createdAt: coll.created_at,
         itemCount: coll.item_count,
-        myScore: a.total_score,
-        completedAt: a.completed_at,
+        myScore: best.total_score,
+        completedAt: best.completed_at,
       } as CollectionWithMyScore;
     })
     .filter(Boolean) as CollectionWithMyScore[];
@@ -219,6 +240,15 @@ export const submitCollectionAttempt = async (
   userName: string,
   totalScore: number
 ): Promise<void> => {
+  // Idempotency guard: skip if this user already has an attempt for this collection
+  const { data: existing } = await supabase
+    .from('collection_attempts')
+    .select('id')
+    .eq('collection_id', collectionId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (existing) return;
+
   const { error } = await supabase.from('collection_attempts').insert({
     id: generateId(),
     collection_id: collectionId,
@@ -234,15 +264,15 @@ export const getCollectionLeaderboard = async (
   collectionId: string,
   currentUserId: string
 ): Promise<{ topTen: CollectionAttempt[]; myRecord: CollectionAttempt | null }> => {
+  // Fetch all rows so we can deduplicate client-side (handles historical duplicate data)
   const { data } = await supabase
     .from('collection_attempts')
     .select('*')
     .eq('collection_id', collectionId)
     .order('total_score', { ascending: false })
-    .order('completed_at', { ascending: true })
-    .limit(10);
+    .order('completed_at', { ascending: true });
 
-  const topTen: CollectionAttempt[] = (data || []).map((row) => ({
+  const allRows: CollectionAttempt[] = (data || []).map((row) => ({
     id: row.id,
     collectionId: row.collection_id,
     userId: row.user_id,
@@ -251,30 +281,19 @@ export const getCollectionLeaderboard = async (
     completedAt: row.completed_at,
   }));
 
-  const myInTop = topTen.find((a) => a.userId === currentUserId) || null;
-  let myRecord = myInTop;
-
-  if (!myRecord) {
-    const { data: myData } = await supabase
-      .from('collection_attempts')
-      .select('*')
-      .eq('collection_id', collectionId)
-      .eq('user_id', currentUserId)
-      .order('total_score', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (myData) {
-      myRecord = {
-        id: myData.id,
-        collectionId: myData.collection_id,
-        userId: myData.user_id,
-        userName: myData.user_name,
-        totalScore: myData.total_score,
-        completedAt: myData.completed_at,
-      };
+  // Deduplicate: one entry per userId, keep best score (data already sorted: highest score first,
+  // then earliest completed_at — so the first occurrence per user is their best record)
+  const seen = new Set<string>();
+  const deduped: CollectionAttempt[] = [];
+  for (const row of allRows) {
+    if (!seen.has(row.userId)) {
+      seen.add(row.userId);
+      deduped.push(row);
     }
   }
+
+  const topTen = deduped.slice(0, 10);
+  const myRecord = deduped.find((a) => a.userId === currentUserId) || null;
 
   return { topTen, myRecord };
 };
@@ -290,13 +309,22 @@ export interface CollectionStats {
 export const getCollectionStats = async (collectionId: string): Promise<CollectionStats> => {
   const { data: attempts } = await supabase
     .from('collection_attempts')
-    .select('total_score')
+    .select('user_id, total_score')
     .eq('collection_id', collectionId);
 
-  const totalCompletions = attempts?.length || 0;
+  // Deduplicate by userId: keep best score per user
+  const bestByUser = new Map<string, number>();
+  for (const row of attempts || []) {
+    const prev = bestByUser.get(row.user_id);
+    if (prev === undefined || row.total_score > prev) {
+      bestByUser.set(row.user_id, row.total_score);
+    }
+  }
+  const uniqueScores = Array.from(bestByUser.values());
+  const totalCompletions = uniqueScores.length;
   const avgTotalScore =
     totalCompletions > 0
-      ? Math.round(attempts!.reduce((s, a) => s + a.total_score, 0) / totalCompletions)
+      ? Math.round(uniqueScores.reduce((s, v) => s + v, 0) / totalCompletions)
       : 0;
 
   const { data: items } = await supabase
