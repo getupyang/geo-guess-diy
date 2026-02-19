@@ -133,6 +133,12 @@ const CollectionPlayer: React.FC<Props> = ({
           progressRef.current = updated;
           saveCollectionProgress(updated);
         }
+        // Fetch game data to show the image in the historical view
+        let histGame: GameData | null =
+          prefetchRef.current?.id === gameId ? prefetchRef.current : null;
+        prefetchRef.current = null;
+        if (!histGame) histGame = await getGameById(gameId);
+        setCurrentGame(histGame);
         setPlayState('historical');
         return;
       }
@@ -285,42 +291,68 @@ const CollectionPlayer: React.FC<Props> = ({
     );
   }
 
-  // ---- HISTORICAL ANSWER CARD ----
+  // ---- HISTORICAL ANSWER VIEW ----
   if (playState === 'historical' && historicalRecord) {
     return (
-      <div className="h-[100dvh] bg-gray-900 text-white flex flex-col">
-        <ProgressBar current={completedCount} total={gameIds.length} />
-        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-5">
-          <div className="w-16 h-16 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
-          <div>
-            <p className="text-gray-400 text-sm mb-1">你之前答过这道题</p>
-            <p className="text-white text-xs">历史记录已自动计入</p>
-          </div>
-          <div className="flex gap-6 mt-2">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-orange-400">
-                {historicalRecord.score.toLocaleString()}
-              </div>
-              <div className="text-xs text-gray-500 mt-1">历史得分</div>
-            </div>
-            <div className="w-px bg-gray-700" />
-            <div className="text-center">
-              <div className="text-3xl font-bold text-gray-300">
-                {formatDist(historicalRecord.distance)}
-              </div>
-              <div className="text-xs text-gray-500 mt-1">误差距离</div>
-            </div>
-          </div>
+      <div className="relative w-full h-[100dvh] bg-black overflow-hidden flex flex-col">
+        {/* Progress bar */}
+        <div className="absolute top-0 w-full z-20">
+          <ProgressBar current={completedCount} total={gameIds.length} />
         </div>
-        <div className="p-4 pb-8">
+
+        {/* Close button */}
+        <div className="absolute top-10 left-0 w-full h-14 bg-gradient-to-b from-black/70 to-transparent z-10 flex items-center px-4 pointer-events-none">
           <button
-            onClick={handleNext}
-            className="w-full py-4 bg-orange-500 rounded-2xl font-bold text-white text-lg active:scale-95 transition-transform"
+            onClick={handleBack}
+            className="pointer-events-auto p-2 bg-black/30 rounded-full text-white backdrop-blur"
           >
-            {isLastQuestion ? '查看结果' : '下一题'}
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
+        </div>
+
+        {/* Full-screen image */}
+        <div className="flex-1 flex items-center justify-center relative bg-black pt-10">
+          {currentGame ? (
+            <ImageViewer src={currentGame.imageData} />
+          ) : (
+            <div className="w-full h-full bg-gray-800 animate-pulse" />
+          )}
+        </div>
+
+        {/* Bottom info card */}
+        <div className="absolute bottom-0 left-0 right-0 z-20 p-4">
+          <div className="bg-gray-900/95 backdrop-blur-md rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center gap-2 px-4 pt-4 pb-3 border-b border-white/5">
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 flex-shrink-0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <p className="text-sm text-gray-300 flex-1">你之前答过这道题</p>
+              <span className="text-xs text-gray-500">历史记录已自动计入</span>
+            </div>
+            {/* Scores */}
+            <div className="flex px-4 py-3 gap-3">
+              <div className="flex-1 bg-gray-800 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold text-orange-400 leading-none">
+                  {historicalRecord.score.toLocaleString()}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">历史得分</div>
+              </div>
+              <div className="flex-1 bg-gray-800 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold text-gray-300 leading-none">
+                  {formatDist(historicalRecord.distance)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">误差距离</div>
+              </div>
+            </div>
+            {/* Next button */}
+            <div className="px-4 pb-4">
+              <button
+                onClick={handleNext}
+                className="w-full py-3.5 bg-orange-500 rounded-xl font-bold text-white active:scale-95 transition-transform"
+              >
+                {isLastQuestion ? '查看总成绩' : '下一题 →'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );
