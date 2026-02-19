@@ -425,7 +425,7 @@ const CollectionPlayer: React.FC<Props> = ({
 
           <div className="flex-1 relative bg-gray-200">
             <GameMap
-              key={currentIndex}
+              resetCenterKey={currentIndex}
               isOpen={isMapOpen}
               interactive={!isReviewing}
               onLocationSelect={!isReviewing ? setUserGuess : undefined}

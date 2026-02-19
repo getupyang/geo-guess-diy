@@ -5,45 +5,50 @@ import { LatLng, Guess } from '../types';
 import { searchAddress, getAddressFromCoords } from '../services/geocodingService';
 
 interface GameMapProps {
-  initialCenter?: LatLng | null; 
+  initialCenter?: LatLng | null;
   onLocationSelect?: (latlng: LatLng, name?: string) => void;
   selectedLocation?: LatLng | null; // The current user's temporary selection in PLAY mode
-  
+
   // Review Mode Props
   actualLocation?: LatLng | null;
   guesses?: Guess[]; // List of all guesses to display in REVIEW mode
   currentUserId?: string; // To highlight the current user
-  
+
   interactive?: boolean; // If true, allows selecting points. If false, just viewing (but panning/zooming still allowed)
   isOpen?: boolean;
   enableSearch?: boolean;
+  // When this value changes, the map resets its viewport to the default world view.
+  // Used by CollectionPlayer to clear the previous question's position without remounting.
+  resetCenterKey?: number;
 }
 
-const GameMap: React.FC<GameMapProps> = ({ 
-  initialCenter, 
-  onLocationSelect, 
+// Module-level constant so useEffect closures can reference it without stale-closure risk
+const DEFAULT_CENTER = { lat: 35.8617, lng: 104.1954 };
+
+const GameMap: React.FC<GameMapProps> = ({
+  initialCenter,
+  onLocationSelect,
   selectedLocation,
   actualLocation,
   guesses = [],
   currentUserId,
   interactive = true,
   isOpen = false,
-  enableSearch = false
+  enableSearch = false,
+  resetCenterKey,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
-  
+
   // References for cleanup
   const markersRef = useRef<L.Marker[]>([]);
   const linesRef = useRef<L.Polyline[]>([]);
-  
+
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
 
-  // Default center (China)
-  const defaultCenter = { lat: 35.8617, lng: 104.1954 };
-  const center = initialCenter || defaultCenter;
+  const center = initialCenter || DEFAULT_CENTER;
 
   // Initialize Map
   useEffect(() => {
@@ -148,6 +153,14 @@ const GameMap: React.FC<GameMapProps> = ({
           mapRef.current.setView([initialCenter.lat, initialCenter.lng], 13);
       }
   }, [initialCenter?.lat, initialCenter?.lng]);
+
+  // Reset viewport to world view when the question changes (CollectionPlayer).
+  // Using setView instead of remounting avoids breaking Leaflet's click handler closure.
+  useEffect(() => {
+    if (mapRef.current && resetCenterKey !== undefined) {
+      mapRef.current.setView([DEFAULT_CENTER.lat, DEFAULT_CENTER.lng], 3);
+    }
+  }, [resetCenterKey]);
 
 
   // --- Render Markers & Logic ---
