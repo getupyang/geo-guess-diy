@@ -106,6 +106,7 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
   const [isCreator, setIsCreator] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [completedItems, setCompletedItems] = useState<CompletedItem[]>([]);
+  const [localTotalScore, setLocalTotalScore] = useState(0);
   const [hasProgress, setHasProgress] = useState(false);
   const [startIndex, setStartIndex] = useState(0);
   const [shareToast, setShareToast] = useState(false);
@@ -138,6 +139,11 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
         if (progress?.isCompleted) {
           setIsCompleted(true);
           setCompletedItems(progress.completedItems);
+          // Recompute from completedItems — authoritative, handles legacy saves
+          // where totalScore may have been written as 0 due to old bugs.
+          // Also avoids the race condition where the DB insert hasn't landed yet.
+          const computed = progress.completedItems.reduce((s, i) => s + i.score, 0);
+          setLocalTotalScore(computed);
           const lb = await getCollectionLeaderboard(collectionId, currentUser.id);
           setLeaderboard(lb);
         } else if (progress) {
@@ -269,7 +275,7 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
 
   // ---- COMPLETED PLAYER VIEW ----
   if (isCompleted && leaderboard) {
-    const myScore = leaderboard.myRecord?.totalScore ?? 0;
+    const myScore = localTotalScore || leaderboard.myRecord?.totalScore || 0;
     return (
       <div className="min-h-screen bg-gray-900 text-white flex flex-col">
         <div className="flex items-center gap-4 px-4 h-14 border-b border-gray-800 flex-shrink-0">
