@@ -115,7 +115,8 @@ const CollectionPlayer: React.FC<Props> = ({
         };
         progressRef.current = final;
         saveCollectionProgress(final);
-        await submitCollectionAttempt(
+        // Fire-and-forget: don't block navigation on the Supabase write
+        submitCollectionAttempt(
           collectionId,
           currentUser.id,
           currentUser.name,
