@@ -106,22 +106,8 @@ const CollectionPlayer: React.FC<Props> = ({
   const loadQuestion = useCallback(
     async (index: number) => {
       if (index >= gameIds.length) {
-        // All done
-        const p = progressRef.current;
-        const final: CollectionProgress = {
-          ...p,
-          isCompleted: true,
-          completedAt: Date.now(),
-        };
-        progressRef.current = final;
-        saveCollectionProgress(final);
-        // Fire-and-forget: don't block navigation on the Supabase write
-        submitCollectionAttempt(
-          collectionId,
-          currentUser.id,
-          currentUser.name,
-          final.totalScore
-        );
+        // Safety net: handleNext normally handles completion before this path is reached.
+        // This covers edge cases like startIndex already being past the end.
         onComplete();
         return;
       }
@@ -261,6 +247,20 @@ const CollectionPlayer: React.FC<Props> = ({
 
   const handleNext = () => {
     const next = currentIndex + 1;
+    if (next >= gameIds.length) {
+      // Handle completion synchronously — avoids setCurrentIndex → useEffect → async chain
+      // which causes the button to briefly revert to "下一题" and risks closure staleness.
+      const final: CollectionProgress = {
+        ...progressRef.current,
+        isCompleted: true,
+        completedAt: Date.now(),
+      };
+      progressRef.current = final;
+      saveCollectionProgress(final);
+      submitCollectionAttempt(collectionId, currentUser.id, currentUser.name, final.totalScore);
+      onComplete();
+      return;
+    }
     setCurrentIndex(next);
     // loadQuestion fires via useEffect
   };
@@ -425,6 +425,7 @@ const CollectionPlayer: React.FC<Props> = ({
 
           <div className="flex-1 relative bg-gray-200">
             <GameMap
+              key={currentIndex}
               isOpen={isMapOpen}
               interactive={!isReviewing}
               onLocationSelect={!isReviewing ? setUserGuess : undefined}
