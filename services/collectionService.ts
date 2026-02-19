@@ -240,14 +240,24 @@ export const submitCollectionAttempt = async (
   userName: string,
   totalScore: number
 ): Promise<void> => {
-  // Idempotency guard: skip if this user already has an attempt for this collection
+  // Check for existing record
   const { data: existing } = await supabase
     .from('collection_attempts')
-    .select('id')
+    .select('id, total_score')
     .eq('collection_id', collectionId)
     .eq('user_id', userId)
     .maybeSingle();
-  if (existing) return;
+
+  if (existing) {
+    // Update only if the new score is higher (fixes stale 0-score records from old bugs)
+    if (totalScore > existing.total_score) {
+      await supabase
+        .from('collection_attempts')
+        .update({ total_score: totalScore, completed_at: Date.now() })
+        .eq('id', existing.id);
+    }
+    return;
+  }
 
   const { error } = await supabase.from('collection_attempts').insert({
     id: generateId(),
