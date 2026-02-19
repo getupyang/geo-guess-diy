@@ -674,6 +674,7 @@ const App = () => {
       <CollectionCreator
         currentUser={currentUser}
         onBack={() => window.location.hash = ''}
+        onGoCreate={() => { window.location.hash = '#create'; }}
         onPublish={(collection: Collection) => {
           window.location.hash = `#collection/${collection.id}`;
         }}

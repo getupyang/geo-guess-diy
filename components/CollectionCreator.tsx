@@ -6,13 +6,14 @@ import { createCollection } from '../services/collectionService';
 interface Props {
   currentUser: User;
   onBack: () => void;
+  onGoCreate: () => void;
   onPublish: (collection: Collection) => void;
 }
 
 const MAX_QUESTIONS = 10;
 const MAX_NAME_LEN = 10;
 
-const CollectionCreator: React.FC<Props> = ({ currentUser, onBack, onPublish }) => {
+const CollectionCreator: React.FC<Props> = ({ currentUser, onBack, onGoCreate, onPublish }) => {
   const [name, setName] = useState('');
   const [myGames, setMyGames] = useState<GameData[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -100,7 +101,7 @@ const CollectionCreator: React.FC<Props> = ({ currentUser, onBack, onPublish }) 
 
       {/* Subtitle */}
       <div className="px-4 py-3 flex items-center justify-between flex-shrink-0">
-        <span className="text-sm text-gray-400">选择题目（{selectedIds.length}/{MAX_QUESTIONS}）</span>
+        <span className="text-sm text-gray-400">选择题目</span>
         {selectedIds.length > 0 && (
           <button onClick={() => setSelectedIds([])} className="text-xs text-gray-500">
             清空
@@ -121,7 +122,7 @@ const CollectionCreator: React.FC<Props> = ({ currentUser, onBack, onPublish }) 
             <div className="text-4xl">📷</div>
             <p className="text-gray-400">你还没有出过题</p>
             <button
-              onClick={onBack}
+              onClick={onGoCreate}
               className="px-6 py-2 bg-orange-500 text-white rounded-full font-bold text-sm"
             >
               先去出一道题 →
@@ -162,6 +163,14 @@ const CollectionCreator: React.FC<Props> = ({ currentUser, onBack, onPublish }) 
                 </div>
               );
             })}
+            {/* Add new question entry — always shown at the end */}
+            <div
+              onClick={onGoCreate}
+              className="aspect-square bg-gray-800 rounded-xl flex flex-col items-center justify-center gap-1 cursor-pointer active:scale-95 transition-transform hover:bg-gray-700"
+            >
+              <span className="text-2xl text-gray-400">+</span>
+              <span className="text-xs text-gray-500">去出题</span>
+            </div>
           </div>
         )}
       </div>
