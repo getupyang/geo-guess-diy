@@ -206,6 +206,47 @@ export interface CollectionProgress {
 >
 > 自身排名查询（用于"自己的行始终展示"）：`SELECT * FROM collection_attempts WHERE collection_id = ? AND user_id = ? ORDER BY completed_at ASC LIMIT 1`（取最早一条）
 
+#### 5.3.4 建表 SQL（Supabase SQL Editor 执行）
+
+```sql
+CREATE TABLE collections (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  author_id TEXT REFERENCES profiles(id),
+  author_name TEXT NOT NULL,
+  item_count INT NOT NULL DEFAULT 0,
+  created_at BIGINT NOT NULL
+);
+
+CREATE TABLE collection_items (
+  id TEXT PRIMARY KEY,
+  collection_id TEXT REFERENCES collections(id),
+  game_id TEXT REFERENCES games(id),
+  order_index INT NOT NULL
+);
+
+CREATE TABLE collection_attempts (
+  id TEXT PRIMARY KEY,
+  collection_id TEXT REFERENCES collections(id),
+  user_id TEXT REFERENCES profiles(id),
+  user_name TEXT NOT NULL,
+  total_score INT NOT NULL DEFAULT 0,
+  completed_at BIGINT NOT NULL
+);
+
+ALTER TABLE collections ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read"   ON collections FOR SELECT USING (true);
+CREATE POLICY "Public insert" ON collections FOR INSERT WITH CHECK (true);
+
+ALTER TABLE collection_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read"   ON collection_items FOR SELECT USING (true);
+CREATE POLICY "Public insert" ON collection_items FOR INSERT WITH CHECK (true);
+
+ALTER TABLE collection_attempts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read"   ON collection_attempts FOR SELECT USING (true);
+CREATE POLICY "Public insert" ON collection_attempts FOR INSERT WITH CHECK (true);
+```
+
 ---
 
 ### 5.4 新增服务层 (`collectionService.ts`)
@@ -366,3 +407,18 @@ const handleShare = async () => {
 | `components/CollectionPlayer.tsx` | 新增 | 复用 PLAY / REVIEW 模式，包装一层调度逻辑 |
 | `components/CollectionLeaderboard.tsx` | 新增 | 独立组件 |
 | 数据库 | 新增3张表 | 不修改现有表结构，零风险 |
+
+---
+
+## 6. 数据库变更历史 (Migration Log)
+
+> **说明**：Supabase 不提供原生迁移版本控制，所有 Schema 变更在此手动记录。每次变更应包含：执行时间、执行环境、变更内容、是否已应用。
+
+| 版本 | 日期 | 环境 | 变更内容 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| v0.1 | （初始） | Production | 创建 `profiles`、`games`、`guesses` 三张基础表 | ✅ 已应用 |
+| v0.2 | 2026-02-19 | Production | 新增 `collections`、`collection_items`、`collection_attempts` 三张表，含 RLS 策略（见 §5.3.4）| ✅ 已应用 |
+
+**下次新环境部署顺序：**
+1. 执行 v0.1 的建表 SQL（来自原始项目文档或 Supabase 控制台备份）
+2. 执行 v0.2 的建表 SQL（见 §5.3.4）
