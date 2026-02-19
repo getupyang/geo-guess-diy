@@ -1,15 +1,22 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GameMode, GameData, LatLng, Guess, User } from './types';
+import { GameMode, GameData, LatLng, Guess, User, Collection } from './types';
 import MosaicCanvas from './components/MosaicCanvas';
 import GameMap from './components/GameMap';
 import ImageViewer from './components/ImageViewer';
-import { 
-    saveGame, getGameById, generateId, 
-    getCurrentUser, saveCurrentUser, getNextUnplayedGame, 
+import CollectionCreator from './components/CollectionCreator';
+import CollectionHome from './components/CollectionHome';
+import CollectionPlayer from './components/CollectionPlayer';
+import {
+    saveGame, getGameById, generateId,
+    getCurrentUser, saveCurrentUser, getNextUnplayedGame,
     saveGuess, getGuessesForGame, getUserGuesses, hasUserPlayed,
     rateGame, getUserCreatedGames
 } from './services/storageService';
+import {
+    getMyCollections, getMyPlayedCollections, getAllCollections,
+    CollectionWithStats, CollectionWithMyScore,
+} from './services/collectionService';
 import { getAddressFromCoords } from './services/geocodingService';
 
 // Declare EXIF global from CDN
@@ -125,6 +132,16 @@ const App = () => {
   // History / Recent
   const [recentPlayed, setRecentPlayed] = useState<Guess[]>([]);
   const [myCreatedGames, setMyCreatedGames] = useState<GameData[]>([]);
+
+  // Collection State
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
+  const [activeCollectionGameIds, setActiveCollectionGameIds] = useState<string[]>([]);
+  const [activeCollectionName, setActiveCollectionName] = useState('');
+  const [collectionPlayStartIndex, setCollectionPlayStartIndex] = useState(0);
+  const [myCollectionsList, setMyCollectionsList] = useState<CollectionWithStats[]>([]);
+  const [myPlayedList, setMyPlayedList] = useState<CollectionWithMyScore[]>([]);
+  const [plazaList, setPlazaList] = useState<CollectionWithStats[]>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
   
   // Ref to track if we've already initialized the review map for a specific game
   const lastReviewGameId = useRef<string | null>(null);
@@ -137,6 +154,14 @@ const App = () => {
         setCurrentUser(user);
         await refreshHistory(user.id);
         setLoading(false);
+
+        // Handle ?collection=ID deep link (from share URL)
+        const params = new URLSearchParams(window.location.search);
+        const collectionId = params.get('collection');
+        if (collectionId) {
+            window.history.replaceState({}, '', window.location.pathname);
+            window.location.hash = `#collection/${collectionId}`;
+        }
     };
     init();
   }, []);
@@ -152,6 +177,29 @@ const App = () => {
       const games = await getUserCreatedGames(currentUser.id);
       setMyCreatedGames(games);
       setLoading(false);
+  };
+
+  const loadMyCollections = async () => {
+      if (!currentUser) return;
+      setCollectionsLoading(true);
+      const list = await getMyCollections(currentUser.id);
+      setMyCollectionsList(list);
+      setCollectionsLoading(false);
+  };
+
+  const loadMyPlayed = async () => {
+      if (!currentUser) return;
+      setCollectionsLoading(true);
+      const list = await getMyPlayedCollections(currentUser.id);
+      setMyPlayedList(list);
+      setCollectionsLoading(false);
+  };
+
+  const loadPlaza = async () => {
+      setCollectionsLoading(true);
+      const list = await getAllCollections();
+      setPlazaList(list);
+      setCollectionsLoading(false);
   };
 
   const handleEditName = async () => {
@@ -213,6 +261,26 @@ const App = () => {
       } else if (hash === '#created') {
         setMode(GameMode.CREATED_LIST);
         loadCreatedGames();
+
+      } else if (hash === '#collection-create') {
+        setMode(GameMode.COLLECTION_CREATE);
+
+      } else if (hash.startsWith('#collection/')) {
+        const id = hash.split('/')[1];
+        setActiveCollectionId(id);
+        setMode(GameMode.COLLECTION_HOME);
+
+      } else if (hash === '#my-collections') {
+        setMode(GameMode.MY_COLLECTIONS);
+        loadMyCollections();
+
+      } else if (hash === '#my-played') {
+        setMode(GameMode.MY_PLAYED_COLLECTIONS);
+        loadMyPlayed();
+
+      } else if (hash === '#plaza') {
+        setMode(GameMode.PLAZA);
+        loadPlaza();
 
       } else {
         setMode(GameMode.HOME);
@@ -473,12 +541,45 @@ const App = () => {
                 <IconPlus /> 创建新挑战
             </button>
             
-             <button 
+             <button
                 onClick={() => window.location.hash = '#created'}
                 className="w-full py-3 bg-gray-900 border border-gray-800 rounded-xl shadow text-gray-400 text-sm font-medium hover:text-white flex items-center justify-center gap-2"
             >
                 <IconGrid /> 我发布的挑战
             </button>
+        </div>
+
+        {/* Collections Section */}
+        <div className="mb-8">
+            <h2 className="text-sm font-bold text-gray-500 mb-3 uppercase tracking-wider">集锦</h2>
+            <div className="space-y-2">
+                <button
+                    onClick={() => window.location.hash = '#collection-create'}
+                    className="w-full py-3.5 bg-gray-800 border border-gray-700 rounded-xl flex items-center justify-center gap-2 text-sm font-bold text-orange-400 hover:bg-gray-700 active:scale-95 transition-transform"
+                >
+                    <IconPlus /> 创建集锦
+                </button>
+                <div className="grid grid-cols-3 gap-2">
+                    <button
+                        onClick={() => window.location.hash = '#my-collections'}
+                        className="py-2.5 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 text-xs font-medium hover:text-white flex items-center justify-center gap-1"
+                    >
+                        我发布的
+                    </button>
+                    <button
+                        onClick={() => window.location.hash = '#my-played'}
+                        className="py-2.5 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 text-xs font-medium hover:text-white flex items-center justify-center gap-1"
+                    >
+                        我做过的
+                    </button>
+                    <button
+                        onClick={() => window.location.hash = '#plaza'}
+                        className="py-2.5 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 text-xs font-medium hover:text-white flex items-center justify-center gap-1"
+                    >
+                        广场
+                    </button>
+                </div>
+            </div>
         </div>
 
         {/* Recent Section */}
@@ -564,6 +665,179 @@ const App = () => {
              )}
         </div>
       );
+  }
+
+  // ---- Collection Modes ----
+
+  if (mode === GameMode.COLLECTION_CREATE && currentUser) {
+    return (
+      <CollectionCreator
+        currentUser={currentUser}
+        onBack={() => window.location.hash = ''}
+        onPublish={(collection: Collection) => {
+          window.location.hash = `#collection/${collection.id}`;
+        }}
+      />
+    );
+  }
+
+  if (mode === GameMode.COLLECTION_HOME && activeCollectionId && currentUser) {
+    return (
+      <CollectionHome
+        collectionId={activeCollectionId}
+        currentUser={currentUser}
+        onBack={() => window.location.hash = ''}
+        onStartPlay={(collId, ids, startIdx) => {
+          setActiveCollectionGameIds(ids);
+          setCollectionPlayStartIndex(startIdx);
+          setMode(GameMode.COLLECTION_PLAY);
+        }}
+      />
+    );
+  }
+
+  if (mode === GameMode.COLLECTION_PLAY && activeCollectionId && currentUser) {
+    return (
+      <CollectionPlayer
+        collectionId={activeCollectionId}
+        collectionName={activeCollectionName}
+        gameIds={activeCollectionGameIds}
+        startIndex={collectionPlayStartIndex}
+        currentUser={currentUser}
+        onComplete={() => {
+          window.location.hash = `#collection/${activeCollectionId}`;
+        }}
+        onBack={() => {
+          window.location.hash = `#collection/${activeCollectionId}`;
+        }}
+      />
+    );
+  }
+
+  if (mode === GameMode.MY_COLLECTIONS && currentUser) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white p-4">
+        <div className="flex items-center gap-4 mb-6">
+          <button onClick={() => window.location.hash = ''} className="p-2 bg-gray-800 rounded-full"><IconClose /></button>
+          <h1 className="text-xl font-bold">我发布的集锦</h1>
+        </div>
+        {collectionsLoading ? (
+          <div className="text-center py-10 text-gray-500">加载中...</div>
+        ) : myCollectionsList.length === 0 ? (
+          <div className="text-center py-16 text-gray-500">
+            还没有发布过集锦
+            <div className="mt-4">
+              <button
+                onClick={() => window.location.hash = '#collection-create'}
+                className="px-6 py-2 bg-orange-500 text-white rounded-full text-sm font-bold"
+              >创建第一个集锦</button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3 pb-8">
+            {myCollectionsList.map(coll => (
+              <div
+                key={coll.id}
+                onClick={() => window.location.hash = `#collection/${coll.id}`}
+                className="bg-gray-800 rounded-2xl p-4 active:scale-98 transition-transform cursor-pointer"
+              >
+                <div className="font-bold text-white mb-1">{coll.name}</div>
+                <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+                  <span>{coll.itemCount} 道题</span>
+                  <span>·</span>
+                  <span>创建于 {new Date(coll.createdAt).toLocaleDateString()}</span>
+                  <span>·</span>
+                  <span>{coll.totalCompletions} 人已完成</span>
+                  {coll.totalCompletions > 0 && <><span>·</span><span>平均 {coll.avgTotalScore.toLocaleString()} 分</span></>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (mode === GameMode.MY_PLAYED_COLLECTIONS && currentUser) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white p-4">
+        <div className="flex items-center gap-4 mb-6">
+          <button onClick={() => window.location.hash = ''} className="p-2 bg-gray-800 rounded-full"><IconClose /></button>
+          <h1 className="text-xl font-bold">我做过的集锦</h1>
+        </div>
+        {collectionsLoading ? (
+          <div className="text-center py-10 text-gray-500">加载中...</div>
+        ) : myPlayedList.length === 0 ? (
+          <div className="text-center py-16 text-gray-500">
+            还没有完成过集锦
+            <div className="mt-4">
+              <button
+                onClick={() => window.location.hash = '#plaza'}
+                className="px-6 py-2 bg-orange-500 text-white rounded-full text-sm font-bold"
+              >去广场发现集锦</button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3 pb-8">
+            {myPlayedList.map(coll => (
+              <div
+                key={coll.id}
+                onClick={() => window.location.hash = `#collection/${coll.id}`}
+                className="bg-gray-800 rounded-2xl p-4 active:scale-98 transition-transform cursor-pointer"
+              >
+                <div className="font-bold text-white mb-1">{coll.name}</div>
+                <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+                  <span>由 {coll.authorName} 创建</span>
+                  <span>·</span>
+                  <span className="text-orange-400 font-bold">{coll.myScore.toLocaleString()} 分</span>
+                  <span>·</span>
+                  <span>完成于 {new Date(coll.completedAt).toLocaleDateString()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (mode === GameMode.PLAZA) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white p-4">
+        <div className="flex items-center gap-4 mb-6">
+          <button onClick={() => window.location.hash = ''} className="p-2 bg-gray-800 rounded-full"><IconClose /></button>
+          <h1 className="text-xl font-bold">广场</h1>
+        </div>
+        {collectionsLoading ? (
+          <div className="text-center py-10 text-gray-500">加载中...</div>
+        ) : plazaList.length === 0 ? (
+          <div className="text-center py-16 text-gray-500">还没有人发布集锦，来创建第一个吧！</div>
+        ) : (
+          <div className="space-y-3 pb-8">
+            {plazaList.map(coll => (
+              <div
+                key={coll.id}
+                onClick={() => window.location.hash = `#collection/${coll.id}`}
+                className="bg-gray-800 rounded-2xl p-4 active:scale-98 transition-transform cursor-pointer"
+              >
+                <div className="font-bold text-white mb-1">{coll.name}</div>
+                <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+                  <span>{coll.authorName}</span>
+                  <span>·</span>
+                  <span>{coll.itemCount} 道题</span>
+                  <span>·</span>
+                  <span>
+                    {coll.totalCompletions === 0
+                      ? '暂无人完成，来做第一个'
+                      : `${coll.totalCompletions} 人已完成`}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   }
 
   // Unified Create / Play / Review View

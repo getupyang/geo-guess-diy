@@ -35,9 +35,51 @@ export interface Guess {
 
 export enum GameMode {
   HOME = 'HOME',
-  HISTORY = 'HISTORY', // New mode for full history list
-  CREATED_LIST = 'CREATED_LIST', // List of games created by user
+  HISTORY = 'HISTORY',
+  CREATED_LIST = 'CREATED_LIST',
   CREATE = 'CREATE',
   PLAY = 'PLAY',
-  REVIEW = 'REVIEW' // Combined Result/Review mode
+  REVIEW = 'REVIEW',
+  // --- Collections ---
+  COLLECTION_CREATE = 'COLLECTION_CREATE',
+  COLLECTION_HOME = 'COLLECTION_HOME',
+  COLLECTION_PLAY = 'COLLECTION_PLAY',
+  MY_COLLECTIONS = 'MY_COLLECTIONS',
+  MY_PLAYED_COLLECTIONS = 'MY_PLAYED_COLLECTIONS',
+  PLAZA = 'PLAZA',
+}
+
+// --- Collection Types ---
+
+export interface Collection {
+  id: string;
+  name: string;
+  authorId: string;
+  authorName: string;
+  createdAt: number;
+  itemCount: number;
+}
+
+export interface CollectionAttempt {
+  id: string;
+  collectionId: string;
+  userId: string;
+  userName: string;
+  totalScore: number;
+  completedAt: number;
+}
+
+// Stored in localStorage only, never uploaded
+export interface CollectionProgress {
+  collectionId: string;
+  userId: string;
+  completedItems: {
+    gameId: string;
+    score: number;
+    distance: number;
+  }[];
+  isCompleted: boolean;
+  totalScore: number;
+  startedAt: number;
+  completedAt?: number;
 }
