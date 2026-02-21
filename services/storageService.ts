@@ -104,8 +104,23 @@ export const getNextUnplayedGame = async (userId: string): Promise<GameData | nu
 
     const playedGameIds = new Set(myGuesses?.map(g => g.game_id) || []);
 
-    // 2. Fetch latest 50 games ID AND TIMESTAMP ONLY (Lightweight)
-    // CRITICAL FIX: Do NOT select '*' here. Selecting image_data for 50 rows causes massive download.
+    // 2. Try beginner-friendly pool first (is_beginner_friendly = true)
+    const { data: beginnerMeta } = await supabase
+      .from('games')
+      .select('id, created_at')
+      .eq('is_beginner_friendly', true)
+      .order('created_at', { ascending: false });
+
+    if (beginnerMeta) {
+      const unplayedBeginner = beginnerMeta.filter(g => !playedGameIds.has(g.id));
+      if (unplayedBeginner.length > 0) {
+        const pick = unplayedBeginner[Math.floor(Math.random() * unplayedBeginner.length)];
+        return await getGameById(pick.id);
+      }
+    }
+
+    // 3. Beginner pool exhausted — fall back to any unplayed game
+    // CRITICAL: Do NOT select '*' here. Selecting image_data for 50 rows causes massive download.
     const { data: allGamesMeta } = await supabase
       .from('games')
       .select('id, created_at')
@@ -114,7 +129,6 @@ export const getNextUnplayedGame = async (userId: string): Promise<GameData | nu
 
     if (!allGamesMeta) return null;
 
-    // 3. Filter out played games in memory (on the lightweight list)
     const unplayedMeta = allGamesMeta.filter(g => !playedGameIds.has(g.id));
 
     if (unplayedMeta.length === 0) return null;

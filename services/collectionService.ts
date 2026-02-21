@@ -208,6 +208,49 @@ export const getMyPlayedCollections = async (userId: string): Promise<Collection
     .filter(Boolean) as CollectionWithMyScore[];
 };
 
+export const getCollectionCoverImage = async (collectionId: string): Promise<string | null> => {
+  const { data: items } = await supabase
+    .from('collection_items')
+    .select('game_id')
+    .eq('collection_id', collectionId)
+    .order('order_index', { ascending: true })
+    .limit(1);
+
+  if (!items || items.length === 0) return null;
+
+  const { data: game } = await supabase
+    .from('games')
+    .select('image_data')
+    .eq('id', items[0].game_id)
+    .single();
+
+  return game?.image_data || null;
+};
+
+export const getFeaturedCollections = async (): Promise<CollectionWithStats[]> => {
+  const { data, error } = await supabase
+    .from('collections')
+    .select('*')
+    .eq('is_featured', true)
+    .order('featured_order', { ascending: true });
+
+  if (error || !data) return [];
+
+  const collections: CollectionWithStats[] = data.map((row) => ({
+    id: row.id,
+    name: row.name,
+    authorId: row.author_id,
+    authorName: row.author_name,
+    createdAt: row.created_at,
+    itemCount: row.item_count,
+    totalCompletions: 0,
+    avgTotalScore: 0,
+  }));
+
+  await attachStats(collections);
+  return collections;
+};
+
 export const getAllCollections = async (page = 0, pageSize = 20): Promise<CollectionWithStats[]> => {
   const { data, error } = await supabase
     .from('collections')
