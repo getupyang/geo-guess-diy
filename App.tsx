@@ -15,6 +15,7 @@ import {
 } from './services/storageService';
 import {
     getMyCollections, getMyPlayedCollections, getAllCollections,
+    getFeaturedCollections,
     CollectionWithStats, CollectionWithMyScore,
 } from './services/collectionService';
 import { getAddressFromCoords } from './services/geocodingService';
@@ -141,6 +142,7 @@ const App = () => {
   const [myCollectionsList, setMyCollectionsList] = useState<CollectionWithStats[]>([]);
   const [myPlayedList, setMyPlayedList] = useState<CollectionWithMyScore[]>([]);
   const [plazaList, setPlazaList] = useState<CollectionWithStats[]>([]);
+  const [featuredList, setFeaturedList] = useState<CollectionWithStats[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   
   // Ref to track if we've already initialized the review map for a specific game
@@ -200,6 +202,11 @@ const App = () => {
       const list = await getAllCollections();
       setPlazaList(list);
       setCollectionsLoading(false);
+  };
+
+  const loadFeatured = async () => {
+      const list = await getFeaturedCollections();
+      setFeaturedList(list);
   };
 
   const handleEditName = async () => {
@@ -285,6 +292,8 @@ const App = () => {
       } else {
         setMode(GameMode.HOME);
         refreshHistory(currentUser.id);
+        loadFeatured();
+        loadPlaza();
       }
     };
 
@@ -505,100 +514,161 @@ const App = () => {
     const recentUnique = recentPlayed.slice(0, 2);
 
     return (
-      <div className="min-h-screen bg-gray-900 text-white flex flex-col p-6">
-        {/* Header / Profile */}
-        <div className="flex items-center justify-between mb-8">
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-orange-400 to-amber-600 bg-clip-text text-transparent">
-               GeoGuesser
-            </h1>
-            <div className="flex items-center gap-2 cursor-pointer" onClick={handleEditName}>
-                <div className="text-right">
-                    <div className="text-xs text-gray-400">ID: {currentUser?.id.substr(0,4)}</div>
-                    <div className="font-bold text-sm">{currentUser?.name}</div>
-                </div>
-                <img 
-                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser?.avatarSeed}&backgroundColor=b6e3f4`} 
-                    className="w-10 h-10 rounded-full border border-gray-600 bg-gray-800"
-                    alt="avatar"
-                />
-            </div>
-        </div>
+      <div className="min-h-screen bg-gray-900 text-white">
 
-        {/* Action Buttons */}
-        <div className="space-y-4 mb-8">
-            <button 
+        {/* ① HERO */}
+        <section className="relative min-h-screen flex flex-col overflow-hidden">
+          {/* Background image */}
+          <div className="absolute inset-0">
+            <img
+              src="https://raw.githubusercontent.com/getupyang/world-wanderer-game/main/src/assets/hero-bg.jpg"
+              className="w-full h-full object-cover opacity-40"
+              alt=""
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-gray-900/50 via-gray-900/30 to-gray-900" />
+          </div>
+
+          {/* Top bar: avatar */}
+          <div className="relative z-10 flex justify-end p-4 pt-6">
+            <div className="flex items-center gap-2 cursor-pointer" onClick={handleEditName}>
+              <div className="text-right">
+                <div className="font-bold text-sm">{currentUser?.name}</div>
+                <div className="text-xs text-gray-400">点击修改昵称</div>
+              </div>
+              <img
+                src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser?.avatarSeed}&backgroundColor=b6e3f4`}
+                className="w-10 h-10 rounded-full border border-gray-600 bg-gray-800"
+                alt="avatar"
+              />
+            </div>
+          </div>
+
+          {/* Center content */}
+          <div className="relative z-10 flex-1 flex flex-col items-center justify-center text-center px-6 pb-16">
+            <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/30 bg-orange-500/10 px-4 py-1.5 mb-6">
+              <span className="text-sm text-orange-400 font-medium">看图猜地点</span>
+            </div>
+
+            <h1 className="text-4xl font-extrabold tracking-tight leading-tight mb-3">
+              <span className="bg-gradient-to-r from-orange-400 to-amber-500 bg-clip-text text-transparent">GeoGuesser</span>
+              <span className="text-white"> DIY</span>
+            </h1>
+            <p className="text-xl font-bold text-white mb-4">和朋友比谁更懂世界</p>
+            <p className="text-gray-400 max-w-xs mx-auto mb-10 leading-relaxed text-sm">
+              上传你的照片，挑战好友猜出拍摄地点。<br />看谁的地理知识更强！
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
+              <button
                 onClick={handleStartRandom}
                 disabled={loading}
-                className="w-full py-5 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl shadow-lg flex items-center justify-center gap-3 text-lg font-bold active:scale-95 transition-transform disabled:opacity-50"
+                className="flex-1 py-4 bg-gradient-to-r from-orange-500 to-amber-500 rounded-2xl font-bold text-lg active:scale-95 transition-transform disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
+              >
+                {loading ? '加载中...' : <><IconPlay /> 试玩一局</>}
+              </button>
+              <button
+                onClick={() => document.getElementById('featured')?.scrollIntoView({ behavior: 'smooth' })}
+                className="flex-1 py-4 bg-white/10 border border-white/20 rounded-2xl font-bold text-base active:scale-95 transition-transform"
+              >
+                精选集锦 ↓
+              </button>
+            </div>
+          </div>
+
+          {/* Scroll hint */}
+          <div className="relative z-10 flex justify-center pb-6">
+            <div className="text-gray-500 text-xs">↓ 向下滑动</div>
+          </div>
+        </section>
+
+        {/* ② 精选集锦 */}
+        <section id="featured" className="px-4 py-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-white">精选集锦</h2>
+            <button
+              onClick={() => window.location.hash = '#plaza'}
+              className="text-sm text-orange-400 font-medium"
             >
-                {loading ? '加载中...' : <><IconPlay /> 开始新挑战</>}
+              查看更多 →
             </button>
-            
-            <button 
-                onClick={() => window.location.hash = '#create'}
-                className="w-full py-5 bg-gray-800 border border-gray-700 rounded-2xl shadow-lg flex items-center justify-center gap-3 text-lg font-bold hover:bg-gray-700 active:scale-95 transition-transform"
+          </div>
+
+          {featuredList.length === 0 ? (
+            <div className="text-center py-10 text-gray-500 text-sm">加载中...</div>
+          ) : (
+            <div className="space-y-3">
+              {featuredList.map(coll => (
+                <AsyncCollectionCard key={coll.id} collection={coll} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* ③ 我的 */}
+        <section className="px-4 py-8 border-t border-gray-800">
+          <h2 className="text-lg font-bold text-white mb-4">我的</h2>
+
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-gray-400 font-medium">最近游玩</span>
+              <button onClick={() => window.location.hash = '#history'} className="text-xs text-blue-400">查看全部</button>
+            </div>
+            {recentUnique.length === 0 ? (
+              <div className="text-gray-600 text-sm text-center py-4 bg-gray-800/50 rounded-xl">
+                暂无记录，快去试玩一局！
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {recentUnique.map(guess => (
+                  <AsyncGameCard key={guess.id} guess={guess} simple />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => window.location.hash = '#my-played'}
+            className="w-full py-3.5 bg-gray-800 rounded-xl text-sm text-gray-300 font-medium flex items-center justify-between px-4 active:scale-95 transition-transform"
+          >
+            <span>我做过的集锦</span>
+            <span className="text-gray-500">→</span>
+          </button>
+        </section>
+
+        {/* ④ 创作区 */}
+        <section className="px-4 py-8 border-t border-gray-800">
+          <h2 className="text-sm font-bold text-gray-500 mb-4 uppercase tracking-wider">创作</h2>
+          <div className="space-y-2">
+            <button
+              onClick={() => window.location.hash = '#create'}
+              className="w-full py-4 bg-gray-800 border border-gray-700 rounded-2xl flex items-center justify-center gap-2 text-base font-bold text-white active:scale-95 transition-transform"
             >
-                <IconPlus /> 创建新挑战
+              <IconPlus /> 上传照片出题
             </button>
-            
-             <button
+            <button
+              onClick={() => window.location.hash = '#collection-create'}
+              className="w-full py-4 bg-gray-800 border border-gray-700 rounded-2xl flex items-center justify-center gap-2 text-base font-bold text-orange-400 active:scale-95 transition-transform"
+            >
+              <IconPlus /> 创建集锦
+            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
                 onClick={() => window.location.hash = '#created'}
-                className="w-full py-3 bg-gray-900 border border-gray-800 rounded-xl shadow text-gray-400 text-sm font-medium hover:text-white flex items-center justify-center gap-2"
-            >
-                <IconGrid /> 我发布的挑战
-            </button>
-        </div>
+                className="py-3 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 text-sm font-medium active:scale-95 transition-transform"
+              >
+                我发布的挑战
+              </button>
+              <button
+                onClick={() => window.location.hash = '#my-collections'}
+                className="py-3 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 text-sm font-medium active:scale-95 transition-transform"
+              >
+                我发布的集锦
+              </button>
+            </div>
+          </div>
+        </section>
 
-        {/* Collections Section */}
-        <div className="mb-8">
-            <h2 className="text-sm font-bold text-gray-500 mb-3 uppercase tracking-wider">集锦</h2>
-            <div className="space-y-2">
-                <button
-                    onClick={() => window.location.hash = '#collection-create'}
-                    className="w-full py-3.5 bg-gray-800 border border-gray-700 rounded-xl flex items-center justify-center gap-2 text-sm font-bold text-orange-400 hover:bg-gray-700 active:scale-95 transition-transform"
-                >
-                    <IconPlus /> 创建集锦
-                </button>
-                <div className="grid grid-cols-3 gap-2">
-                    <button
-                        onClick={() => window.location.hash = '#my-collections'}
-                        className="py-2.5 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 text-xs font-medium hover:text-white flex items-center justify-center gap-1"
-                    >
-                        我发布的
-                    </button>
-                    <button
-                        onClick={() => window.location.hash = '#my-played'}
-                        className="py-2.5 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 text-xs font-medium hover:text-white flex items-center justify-center gap-1"
-                    >
-                        我做过的
-                    </button>
-                    <button
-                        onClick={() => window.location.hash = '#plaza'}
-                        className="py-2.5 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 text-xs font-medium hover:text-white flex items-center justify-center gap-1"
-                    >
-                        广场
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        {/* Recent Section */}
-        <div className="flex-1">
-            <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-gray-200">最近游玩</h2>
-                <button onClick={() => window.location.hash = '#history'} className="text-sm text-blue-400 font-medium">查看更多</button>
-            </div>
-            
-            <div className="space-y-4">
-                {recentUnique.length === 0 ? (
-                    <div className="text-gray-500 text-center py-8">暂无挑战记录，快去开始吧！</div>
-                ) : (
-                    recentUnique.map(guess => (
-                        <AsyncGameCard key={guess.id} guess={guess} />
-                    ))
-                )}
-            </div>
-        </div>
+        <div className="h-8" />
       </div>
     );
   }
@@ -804,39 +874,70 @@ const App = () => {
 
   if (mode === GameMode.PLAZA) {
     return (
-      <div className="min-h-screen bg-gray-900 text-white p-4">
-        <div className="flex items-center gap-4 mb-6">
-          <button onClick={() => window.location.hash = ''} className="p-2 bg-gray-800 rounded-full"><IconClose /></button>
-          <h1 className="text-xl font-bold">广场</h1>
-        </div>
-        {collectionsLoading ? (
-          <div className="text-center py-10 text-gray-500">加载中...</div>
-        ) : plazaList.length === 0 ? (
-          <div className="text-center py-16 text-gray-500">还没有人发布集锦，来创建第一个吧！</div>
-        ) : (
-          <div className="space-y-3 pb-8">
-            {plazaList.map(coll => (
-              <div
-                key={coll.id}
-                onClick={() => window.location.hash = `#collection/${coll.id}`}
-                className="bg-gray-800 rounded-2xl p-4 active:scale-98 transition-transform cursor-pointer"
-              >
-                <div className="font-bold text-white mb-1">{coll.name}</div>
-                <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
-                  <span>{coll.authorName}</span>
-                  <span>·</span>
-                  <span>{coll.itemCount} 道题</span>
-                  <span>·</span>
-                  <span>
-                    {coll.totalCompletions === 0
-                      ? '暂无人完成，来做第一个'
-                      : `${coll.totalCompletions} 人已完成`}
-                  </span>
-                </div>
-              </div>
-            ))}
+      <div className="min-h-screen bg-gray-900 text-white">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 pt-6 pb-4">
+          <button onClick={() => window.location.hash = ''} className="p-2 bg-gray-800 rounded-full flex-shrink-0"><IconClose /></button>
+          <div>
+            <h1 className="text-lg font-bold leading-tight">集锦广场</h1>
+            <p className="text-xs text-gray-500">发现玩家创作的精彩集锦</p>
           </div>
-        )}
+        </div>
+
+        {/* Grid */}
+        <div className="px-4 pb-10">
+          {collectionsLoading ? (
+            <div className="grid grid-cols-2 gap-3">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="bg-gray-800 rounded-2xl p-4 h-36 animate-pulse" />
+              ))}
+            </div>
+          ) : plazaList.length === 0 ? (
+            <div className="text-center py-20 text-gray-500 text-sm">
+              还没有人发布集锦<br />
+              <button
+                onClick={() => window.location.hash = '#collection-create'}
+                className="mt-4 px-5 py-2 bg-orange-500 text-white rounded-full text-sm font-bold"
+              >来创建第一个</button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {plazaList.map(coll => (
+                <div
+                  key={coll.id}
+                  onClick={() => window.location.hash = `#collection/${coll.id}`}
+                  className="group relative bg-gradient-to-br from-gray-800 to-gray-850 border border-gray-700/50 rounded-2xl p-4 active:scale-95 transition-transform cursor-pointer overflow-hidden flex flex-col justify-between min-h-[9rem]"
+                >
+                  {/* Decorative accent */}
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-orange-500/5 rounded-full -translate-y-6 translate-x-6" />
+
+                  {/* Top: name + author */}
+                  <div>
+                    <div className="font-bold text-white text-sm leading-snug line-clamp-2 mb-1.5">
+                      {coll.name}
+                    </div>
+                    <div className="text-xs text-gray-500 truncate">{coll.authorName}</div>
+                  </div>
+
+                  {/* Bottom: stats row */}
+                  <div className="mt-3 flex items-end justify-between">
+                    <div className="space-y-0.5">
+                      <div className="text-xs text-gray-400">
+                        <span className="text-white font-semibold">{coll.itemCount}</span> 道题
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {coll.totalCompletions === 0
+                          ? '暂无人完成'
+                          : <><span className="text-orange-400 font-semibold">{coll.totalCompletions}</span> 人完成</>}
+                      </div>
+                    </div>
+                    <div className="text-gray-600 text-lg font-bold leading-none">→</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -1093,5 +1194,36 @@ const AsyncGameCard = ({ guess, simple }: { guess: Guess, simple?: boolean }) =>
         </div>
     );
 }
+
+const AsyncCollectionCard = ({ collection }: { collection: CollectionWithStats }) => {
+    return (
+        <div
+            onClick={() => window.location.hash = `#collection/${collection.id}`}
+            className="group relative bg-gradient-to-br from-gray-800 to-gray-850 border border-gray-700/50 rounded-2xl p-4 active:scale-95 transition-transform cursor-pointer overflow-hidden flex flex-col justify-between min-h-[7rem]"
+        >
+            {/* Decorative accent */}
+            <div className="absolute top-0 right-0 w-20 h-20 bg-orange-500/5 rounded-full -translate-y-8 translate-x-8" />
+
+            <div>
+                <div className="font-bold text-white text-base leading-snug mb-1 pr-4">
+                    {collection.name}
+                </div>
+                <div className="text-xs text-gray-500">by {collection.authorName}</div>
+            </div>
+
+            <div className="flex items-end justify-between mt-3">
+                <div className="flex items-center gap-3 text-xs text-gray-400">
+                    <span><span className="text-white font-semibold">{collection.itemCount}</span> 道题</span>
+                    {collection.totalCompletions > 0 && (
+                        <span><span className="text-orange-400 font-semibold">{collection.totalCompletions}</span> 人完成</span>
+                    )}
+                </div>
+                <span className="text-xs font-bold text-orange-400 bg-orange-500/10 px-2.5 py-1 rounded-full flex-shrink-0">
+                    开始 →
+                </span>
+            </div>
+        </div>
+    );
+};
 
 export default App;
