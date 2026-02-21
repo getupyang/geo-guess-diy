@@ -104,40 +104,28 @@ export const getNextUnplayedGame = async (userId: string): Promise<GameData | nu
 
     const playedGameIds = new Set(myGuesses?.map(g => g.game_id) || []);
 
-    // 2. Try beginner-friendly pool first (is_beginner_friendly = true)
-    const { data: beginnerMeta } = await supabase
-      .from('games')
-      .select('id, created_at')
-      .eq('is_beginner_friendly', true)
-      .order('created_at', { ascending: false });
-
-    if (beginnerMeta) {
-      const unplayedBeginner = beginnerMeta.filter(g => !playedGameIds.has(g.id));
-      if (unplayedBeginner.length > 0) {
-        const pick = unplayedBeginner[Math.floor(Math.random() * unplayedBeginner.length)];
-        return await getGameById(pick.id);
-      }
-    }
-
-    // 3. Beginner pool exhausted — fall back to any unplayed game
-    // CRITICAL: Do NOT select '*' here. Selecting image_data for 50 rows causes massive download.
+    // 2. Fetch recent 50 games metadata in ONE query, including beginner flag.
+    // CRITICAL: Do NOT select '*' here — image_data for 50 rows is a massive download.
+    // If is_beginner_friendly column doesn't exist yet, the field just comes back null
+    // and we gracefully fall back to the full pool.
     const { data: allGamesMeta } = await supabase
       .from('games')
-      .select('id, created_at')
+      .select('id, created_at, is_beginner_friendly')
       .order('created_at', { ascending: false })
       .limit(50);
 
     if (!allGamesMeta) return null;
 
-    const unplayedMeta = allGamesMeta.filter(g => !playedGameIds.has(g.id));
+    const unplayed = allGamesMeta.filter(g => !playedGameIds.has(g.id));
+    if (unplayed.length === 0) return null;
 
-    if (unplayedMeta.length === 0) return null;
+    // 3. Prefer beginner-friendly games; fall back to any unplayed game
+    const beginnerPool = unplayed.filter(g => g.is_beginner_friendly);
+    const pool = beginnerPool.length > 0 ? beginnerPool : unplayed;
 
-    // 4. Pick random from the unplayed list
-    const randomGameMeta = unplayedMeta[Math.floor(Math.random() * unplayedMeta.length)];
-
-    // 5. Fetch FULL data (including image) ONLY for the chosen game
-    return await getGameById(randomGameMeta.id);
+    // 4. Pick random, then fetch FULL data (including image) for that one game only
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    return await getGameById(pick.id);
 
   } catch (e) {
     console.error("Error finding game", e);
