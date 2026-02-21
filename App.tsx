@@ -15,7 +15,7 @@ import {
 } from './services/storageService';
 import {
     getMyCollections, getMyPlayedCollections, getAllCollections,
-    getFeaturedCollections, getCollectionCoverImage,
+    getFeaturedCollections,
     CollectionWithStats, CollectionWithMyScore,
 } from './services/collectionService';
 import { getAddressFromCoords } from './services/geocodingService';
@@ -1195,59 +1195,32 @@ const AsyncGameCard = ({ guess, simple }: { guess: Guess, simple?: boolean }) =>
     );
 }
 
-// Async collection card: auto-fetches first game image as cover
 const AsyncCollectionCard = ({ collection }: { collection: CollectionWithStats }) => {
-    const [coverImage, setCoverImage] = useState<string | null>(null);
-    const [imageLoaded, setImageLoaded] = useState(false);
-
-    useEffect(() => {
-        getCollectionCoverImage(collection.id).then(img => {
-            setCoverImage(img);
-        });
-    }, [collection.id]);
-
     return (
         <div
             onClick={() => window.location.hash = `#collection/${collection.id}`}
-            className="bg-gray-800 rounded-2xl overflow-hidden active:scale-95 transition-transform cursor-pointer flex"
+            className="group relative bg-gradient-to-br from-gray-800 to-gray-850 border border-gray-700/50 rounded-2xl p-4 active:scale-95 transition-transform cursor-pointer overflow-hidden flex flex-col justify-between min-h-[7rem]"
         >
-            {/* Cover image */}
-            <div className="w-28 h-28 flex-shrink-0 bg-gray-700 relative overflow-hidden">
-                {coverImage ? (
-                    <img
-                        src={coverImage}
-                        onLoad={() => setImageLoaded(true)}
-                        className={`w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-                        alt=""
-                    />
-                ) : (
-                    <div className="w-full h-full animate-pulse bg-gray-700" />
-                )}
-                {/* Dark gradient over image */}
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent to-gray-800/40" />
+            {/* Decorative accent */}
+            <div className="absolute top-0 right-0 w-20 h-20 bg-orange-500/5 rounded-full -translate-y-8 translate-x-8" />
+
+            <div>
+                <div className="font-bold text-white text-base leading-snug mb-1 pr-4">
+                    {collection.name}
+                </div>
+                <div className="text-xs text-gray-500">by {collection.authorName}</div>
             </div>
 
-            {/* Info */}
-            <div className="flex-1 p-4 flex flex-col justify-between min-w-0">
-                <div>
-                    <div className="font-bold text-white text-base leading-tight mb-1 truncate">
-                        {collection.name}
-                    </div>
-                    <div className="text-xs text-gray-400">
-                        by {collection.authorName}
-                    </div>
+            <div className="flex items-end justify-between mt-3">
+                <div className="flex items-center gap-3 text-xs text-gray-400">
+                    <span><span className="text-white font-semibold">{collection.itemCount}</span> 道题</span>
+                    {collection.totalCompletions > 0 && (
+                        <span><span className="text-orange-400 font-semibold">{collection.totalCompletions}</span> 人完成</span>
+                    )}
                 </div>
-                <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
-                        <span>{collection.itemCount} 道题</span>
-                        {collection.totalCompletions > 0 && (
-                            <span>{collection.totalCompletions} 人完成</span>
-                        )}
-                    </div>
-                    <span className="text-xs font-bold text-orange-400 bg-orange-500/10 px-2.5 py-1 rounded-full">
-                        开始 →
-                    </span>
-                </div>
+                <span className="text-xs font-bold text-orange-400 bg-orange-500/10 px-2.5 py-1 rounded-full flex-shrink-0">
+                    开始 →
+                </span>
             </div>
         </div>
     );
