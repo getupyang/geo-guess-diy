@@ -300,6 +300,16 @@ const CollectionHome: React.FC<Props> = ({ collectionId, currentUser, onBack, on
               </div>
               <p className="text-sm text-gray-400 mt-1">你的总得分</p>
             </div>
+            {/* Go-home nudge — sits inside banner so it catches the eye right after score */}
+            <button
+              onClick={onBack}
+              className="mt-5 inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white/10 hover:bg-white/15 active:scale-95 transition-all text-sm font-medium text-white"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+              去首页发现更多有趣题目
+            </button>
           </div>
 
           {/* Leaderboard */}

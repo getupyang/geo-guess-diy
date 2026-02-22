@@ -558,7 +558,7 @@ const App = () => {
               上传你的照片，挑战好友猜出拍摄地点。<br />看谁的地理知识更强！
             </p>
 
-            <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
+            <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm sm:max-w-xl">
               <button
                 onClick={handleStartRandom}
                 disabled={loading}
@@ -571,6 +571,12 @@ const App = () => {
                 className="flex-1 py-4 bg-white/10 border border-white/20 rounded-2xl font-bold text-base active:scale-95 transition-transform"
               >
                 精选集锦 ↓
+              </button>
+              <button
+                onClick={() => document.getElementById('create-section')?.scrollIntoView({ behavior: 'smooth' })}
+                className="flex-1 py-4 bg-white/10 border border-white/20 rounded-2xl font-bold text-base text-gray-200 active:scale-95 transition-transform flex items-center justify-center gap-2"
+              >
+                <IconPlus /> 我来出题
               </button>
             </div>
           </div>
@@ -636,7 +642,7 @@ const App = () => {
         </section>
 
         {/* ④ 创作区 */}
-        <section className="px-4 py-8 border-t border-gray-800">
+        <section id="create-section" className="px-4 py-8 border-t border-gray-800">
           <h2 className="text-sm font-bold text-gray-500 mb-4 uppercase tracking-wider">创作</h2>
           <div className="space-y-2">
             <button
@@ -656,7 +662,7 @@ const App = () => {
                 onClick={() => window.location.hash = '#created'}
                 className="py-3 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 text-sm font-medium active:scale-95 transition-transform"
               >
-                我发布的挑战
+                我上传的照片
               </button>
               <button
                 onClick={() => window.location.hash = '#my-collections'}
