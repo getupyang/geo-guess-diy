@@ -662,7 +662,7 @@ const App = () => {
                 onClick={() => window.location.hash = '#created'}
                 className="py-3 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 text-sm font-medium active:scale-95 transition-transform"
               >
-                我发布的挑战
+                我上传的照片
               </button>
               <button
                 onClick={() => window.location.hash = '#my-collections'}
