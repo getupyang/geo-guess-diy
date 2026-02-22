@@ -558,25 +558,23 @@ const App = () => {
               上传你的照片，挑战好友猜出拍摄地点。<br />看谁的地理知识更强！
             </p>
 
-            <div className="flex flex-col gap-3 w-full max-w-sm">
-              <div className="flex gap-3">
-                <button
-                  onClick={handleStartRandom}
-                  disabled={loading}
-                  className="flex-1 py-4 bg-gradient-to-r from-orange-500 to-amber-500 rounded-2xl font-bold text-lg active:scale-95 transition-transform disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
-                >
-                  {loading ? '加载中...' : <><IconPlay /> 试玩一局</>}
-                </button>
-                <button
-                  onClick={() => document.getElementById('featured')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="flex-1 py-4 bg-white/10 border border-white/20 rounded-2xl font-bold text-base active:scale-95 transition-transform"
-                >
-                  精选集锦 ↓
-                </button>
-              </div>
+            <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm sm:max-w-xl">
+              <button
+                onClick={handleStartRandom}
+                disabled={loading}
+                className="flex-1 py-4 bg-gradient-to-r from-orange-500 to-amber-500 rounded-2xl font-bold text-lg active:scale-95 transition-transform disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
+              >
+                {loading ? '加载中...' : <><IconPlay /> 试玩一局</>}
+              </button>
+              <button
+                onClick={() => document.getElementById('featured')?.scrollIntoView({ behavior: 'smooth' })}
+                className="flex-1 py-4 bg-white/10 border border-white/20 rounded-2xl font-bold text-base active:scale-95 transition-transform"
+              >
+                精选集锦 ↓
+              </button>
               <button
                 onClick={() => document.getElementById('create-section')?.scrollIntoView({ behavior: 'smooth' })}
-                className="w-full py-3.5 bg-white/8 border border-white/15 rounded-2xl font-bold text-base text-gray-200 active:scale-95 transition-transform flex items-center justify-center gap-2"
+                className="flex-1 py-4 bg-white/10 border border-white/20 rounded-2xl font-bold text-base text-gray-200 active:scale-95 transition-transform flex items-center justify-center gap-2"
               >
                 <IconPlus /> 我来出题
               </button>
