@@ -570,7 +570,7 @@ const App = () => {
                 onClick={() => document.getElementById('featured')?.scrollIntoView({ behavior: 'smooth' })}
                 className="flex-1 py-4 bg-white/10 border border-white/20 rounded-2xl font-bold text-base active:scale-95 transition-transform"
               >
-                精选集锦 ↓
+                ↓ 精选集锦
               </button>
               <button
                 onClick={() => document.getElementById('create-section')?.scrollIntoView({ behavior: 'smooth' })}
